@@ -113,7 +113,7 @@ DATABASES = {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": os.getenv("DB_NAME", "desa"),
         "USER": os.getenv("DB_USER", "postgres"),
-        "PASSWORD": os.getenv("DB_PASSWORD", ""),
+        "PASSWORD": os.getenv("DB_PASSWORD", "afyu"),
         "HOST": os.getenv("DB_HOST", "127.0.0.1"),
         "PORT": os.getenv("DB_PORT", "5432"),
     }
@@ -188,7 +188,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Custom User Model
 # =========================
 # Aktifkan setelah model user custom benar-benar sudah dibuat.
-# AUTH_USER_MODEL = "auth_warga.CustomUser"
+AUTH_USER_MODEL = "auth_warga.CustomUser"
 
 
 # =========================
