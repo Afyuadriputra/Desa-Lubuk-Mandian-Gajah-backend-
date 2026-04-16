@@ -1,7 +1,7 @@
 # features/auth_warga/tests/test_views.py
 
 import json
-
+import uuid
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import Client
@@ -13,446 +13,409 @@ User = get_user_model()
 
 
 @pytest.mark.django_db
-def test_login_view_success():
-    client = Client()
-    User.objects.create_user(
-        nik="1234567890123456",
-        password="password123",
-        nama_lengkap="Budi",
-        role=ROLE_WARGA,
-    )
+class TestLoginView:
 
-    response = client.post(
-        reverse("auth-login"),
-        data=json.dumps({"nik": "1234567890123456", "password": "password123"}),
-        content_type="application/json",
-    )
+    def test_should_return_200_when_login_successful(self):
+        """Login berhasil dengan kredensial valid"""
+        client = Client()
+        User.objects.create_user(
+            nik="1234567890123456",
+            password="password123",
+            nama_lengkap="Budi",
+            role=ROLE_WARGA,
+        )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["data"]["nik"] == "1234567890123456"
+        response = client.post(
+            reverse("auth-login"),
+            data=json.dumps({"nik": "1234567890123456", "password": "password123"}),
+            content_type="application/json",
+        )
 
+        assert response.status_code == 200
+        assert response.json()["data"]["nik"] == "1234567890123456"
 
-@pytest.mark.django_db
-def test_login_view_invalid_payload_returns_400():
-    client = Client()
+    def test_should_return_400_when_payload_invalid(self):
+        """Harus 400 jika payload bukan JSON"""
+        client = Client()
 
-    response = client.post(
-        reverse("auth-login"),
-        data="bukan-json",
-        content_type="application/json",
-    )
+        response = client.post(
+            reverse("auth-login"),
+            data="bukan-json",
+            content_type="application/json",
+        )
 
-    assert response.status_code == 400
+        assert response.status_code == 400
 
+    def test_should_return_400_when_required_fields_missing(self):
+        """Harus 400 jika field tidak lengkap"""
+        client = Client()
 
-@pytest.mark.django_db
-def test_login_view_missing_fields_returns_400():
-    client = Client()
+        response = client.post(
+            reverse("auth-login"),
+            data=json.dumps({"nik": ""}),
+            content_type="application/json",
+        )
 
-    response = client.post(
-        reverse("auth-login"),
-        data=json.dumps({"nik": ""}),
-        content_type="application/json",
-    )
+        assert response.status_code == 400
 
-    assert response.status_code == 400
+    def test_should_return_400_when_nik_invalid(self):
+        """Harus 400 jika format NIK salah"""
+        client = Client()
 
+        response = client.post(
+            reverse("auth-login"),
+            data=json.dumps({"nik": "123", "password": "password123"}),
+            content_type="application/json",
+        )
 
-@pytest.mark.django_db
-def test_login_view_invalid_nik_returns_400():
-    client = Client()
+        assert response.status_code == 400
 
-    response = client.post(
-        reverse("auth-login"),
-        data=json.dumps({"nik": "123", "password": "password123"}),
-        content_type="application/json",
-    )
+    def test_should_return_403_when_account_inactive(self):
+        """Harus 403 jika akun nonaktif"""
+        client = Client()
+        User.objects.create_user(
+            nik="1234567890123456",
+            password="password123",
+            nama_lengkap="Budi",
+            role=ROLE_WARGA,
+            is_active=False,
+        )
 
-    assert response.status_code == 400
+        response = client.post(
+            reverse("auth-login"),
+            data=json.dumps({"nik": "1234567890123456", "password": "password123"}),
+            content_type="application/json",
+        )
 
+        assert response.status_code == 403
 
-@pytest.mark.django_db
-def test_login_view_inactive_account_returns_403():
-    client = Client()
-    User.objects.create_user(
-        nik="1234567890123456",
-        password="password123",
-        nama_lengkap="Budi",
-        role=ROLE_WARGA,
-        is_active=False,
-    )
+    def test_should_return_401_when_password_wrong(self):
+        """Harus 401 jika password salah"""
+        client = Client()
+        User.objects.create_user(
+            nik="1234567890123456",
+            password="password123",
+            nama_lengkap="Budi",
+            role=ROLE_WARGA,
+        )
 
-    response = client.post(
-        reverse("auth-login"),
-        data=json.dumps({"nik": "1234567890123456", "password": "password123"}),
-        content_type="application/json",
-    )
+        response = client.post(
+            reverse("auth-login"),
+            data=json.dumps({"nik": "1234567890123456", "password": "salah"}),
+            content_type="application/json",
+        )
 
-    assert response.status_code == 403
-
-
-@pytest.mark.django_db
-def test_login_view_wrong_password_returns_401():
-    client = Client()
-    User.objects.create_user(
-        nik="1234567890123456",
-        password="password123",
-        nama_lengkap="Budi",
-        role=ROLE_WARGA,
-    )
-
-    response = client.post(
-        reverse("auth-login"),
-        data=json.dumps({"nik": "1234567890123456", "password": "salah"}),
-        content_type="application/json",
-    )
-
-    assert response.status_code == 401
+        assert response.status_code == 401
 
 
 @pytest.mark.django_db
-def test_me_view_requires_authentication():
-    client = Client()
-    response = client.get(reverse("auth-me"))
-    assert response.status_code == 401
+class TestMeView:
+
+    def test_should_return_401_when_not_authenticated(self):
+        """Endpoint /me harus butuh login"""
+        client = Client()
+        response = client.get(reverse("auth-me"))
+        assert response.status_code == 401
+
+    def test_should_return_user_data_when_authenticated(self):
+        """Harus return data user jika sudah login"""
+        client = Client()
+        user = User.objects.create_user(
+            nik="1234567890123456",
+            password="password123",
+            nama_lengkap="Budi",
+            role=ROLE_WARGA,
+        )
+
+        client.force_login(user)
+        response = client.get(reverse("auth-me"))
+
+        assert response.status_code == 200
+        assert response.json()["data"]["nik"] == "1234567890123456"
 
 
 @pytest.mark.django_db
-def test_me_view_success():
-    client = Client()
-    user = User.objects.create_user(
-        nik="1234567890123456",
-        password="password123",
-        nama_lengkap="Budi",
-        role=ROLE_WARGA,
-    )
+class TestCreateWargaUserView:
 
-    client.force_login(user)
-    response = client.get(reverse("auth-me"))
+    def test_should_return_401_when_not_authenticated(self):
+        """Harus login untuk create warga"""
+        client = Client()
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["data"]["nik"] == "1234567890123456"
-
-
-@pytest.mark.django_db
-def test_create_warga_user_view_requires_authentication():
-    client = Client()
-
-    response = client.post(
-        reverse("auth-create-warga-user"),
-        data=json.dumps(
-            {
+        response = client.post(
+            reverse("auth-create-warga-user"),
+            data=json.dumps({
                 "nik": "2222222222222222",
                 "password": "password123",
                 "nama_lengkap": "Warga Baru",
-            }
-        ),
-        content_type="application/json",
-    )
+            }),
+            content_type="application/json",
+        )
 
-    assert response.status_code == 401
+        assert response.status_code == 401
 
+    def test_should_allow_admin_to_create_warga(self):
+        """Admin boleh create warga"""
+        client = Client()
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role=ROLE_ADMIN,
+            is_staff=True,
+        )
 
-@pytest.mark.django_db
-def test_create_warga_user_view_admin_success():
-    client = Client()
-
-    actor = User.objects.create_user(
-        nik="1111111111111111",
-        password="password123",
-        nama_lengkap="Admin",
-        role=ROLE_ADMIN,
-        is_staff=True,
-    )
-    client.force_login(actor)
-
-    response = client.post(
-        reverse("auth-create-warga-user"),
-        data=json.dumps(
-            {
+        client.force_login(actor)
+        response = client.post(
+            reverse("auth-create-warga-user"),
+            data=json.dumps({
                 "nik": "2222222222222222",
                 "password": "password123",
                 "nama_lengkap": "Warga Baru",
-            }
-        ),
-        content_type="application/json",
-    )
+            }),
+            content_type="application/json",
+        )
 
-    assert response.status_code == 201
-    body = response.json()
-    assert body["data"]["role"] == ROLE_WARGA
+        assert response.status_code == 201
+        assert response.json()["data"]["role"] == ROLE_WARGA
 
+    def test_should_return_400_when_nik_duplicate(self):
+        """Harus 400 jika NIK sudah ada"""
+        client = Client()
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role=ROLE_ADMIN,
+            is_staff=True,
+        )
+        User.objects.create_user(
+            nik="2222222222222222",
+            password="password123",
+            nama_lengkap="Warga Lama",
+            role=ROLE_WARGA,
+        )
 
-@pytest.mark.django_db
-def test_create_warga_user_view_duplicate_nik_returns_400():
-    client = Client()
-
-    actor = User.objects.create_user(
-        nik="1111111111111111",
-        password="password123",
-        nama_lengkap="Admin",
-        role=ROLE_ADMIN,
-        is_staff=True,
-    )
-    User.objects.create_user(
-        nik="2222222222222222",
-        password="password123",
-        nama_lengkap="Warga Lama",
-        role=ROLE_WARGA,
-    )
-    client.force_login(actor)
-
-    response = client.post(
-        reverse("auth-create-warga-user"),
-        data=json.dumps(
-            {
+        client.force_login(actor)
+        response = client.post(
+            reverse("auth-create-warga-user"),
+            data=json.dumps({
                 "nik": "2222222222222222",
                 "password": "password123",
                 "nama_lengkap": "Warga Baru",
-            }
-        ),
-        content_type="application/json",
-    )
+            }),
+            content_type="application/json",
+        )
 
-    assert response.status_code == 400
+        assert response.status_code == 400
 
+    def test_should_return_403_when_warga_create_warga(self):
+        """Warga tidak boleh create warga"""
+        client = Client()
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Warga",
+            role=ROLE_WARGA,
+        )
 
-@pytest.mark.django_db
-def test_create_warga_user_view_warga_forbidden():
-    client = Client()
-
-    actor = User.objects.create_user(
-        nik="1111111111111111",
-        password="password123",
-        nama_lengkap="Warga Aktor",
-        role=ROLE_WARGA,
-    )
-    client.force_login(actor)
-
-    response = client.post(
-        reverse("auth-create-warga-user"),
-        data=json.dumps(
-            {
+        client.force_login(actor)
+        response = client.post(
+            reverse("auth-create-warga-user"),
+            data=json.dumps({
                 "nik": "2222222222222222",
                 "password": "password123",
                 "nama_lengkap": "Warga Baru",
-            }
-        ),
-        content_type="application/json",
-    )
+            }),
+            content_type="application/json",
+        )
 
-    assert response.status_code == 403
+        assert response.status_code == 403
 
 
 @pytest.mark.django_db
-def test_create_admin_user_view_requires_authentication():
-    client = Client()
+class TestCreateAdminUserView:
 
-    response = client.post(
-        reverse("auth-create-admin-user"),
-        data=json.dumps(
-            {
+    def test_should_return_401_when_not_authenticated(self):
+        client = Client()
+
+        response = client.post(
+            reverse("auth-create-admin-user"),
+            data=json.dumps({
                 "nik": "2222222222222222",
                 "password": "password123",
                 "nama_lengkap": "Admin Baru",
                 "role": ROLE_ADMIN,
-            }
-        ),
-        content_type="application/json",
-    )
+            }),
+            content_type="application/json",
+        )
 
-    assert response.status_code == 401
+        assert response.status_code == 401
 
+    def test_should_allow_superadmin_to_create_admin(self):
+        client = Client()
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Super Admin",
+            role=ROLE_SUPERADMIN,
+            is_staff=True,
+            is_superuser=True,
+        )
 
-@pytest.mark.django_db
-def test_create_admin_user_view_superadmin_success():
-    client = Client()
-
-    actor = User.objects.create_user(
-        nik="1111111111111111",
-        password="password123",
-        nama_lengkap="Super Admin",
-        role=ROLE_SUPERADMIN,
-        is_staff=True,
-        is_superuser=True,
-    )
-    client.force_login(actor)
-
-    response = client.post(
-        reverse("auth-create-admin-user"),
-        data=json.dumps(
-            {
+        client.force_login(actor)
+        response = client.post(
+            reverse("auth-create-admin-user"),
+            data=json.dumps({
                 "nik": "2222222222222222",
                 "password": "password123",
                 "nama_lengkap": "Admin Baru",
                 "role": ROLE_ADMIN,
-            }
-        ),
-        content_type="application/json",
-    )
+            }),
+            content_type="application/json",
+        )
 
-    assert response.status_code == 201
-    body = response.json()
-    assert body["data"]["role"] == ROLE_ADMIN
+        assert response.status_code == 201
+        assert response.json()["data"]["role"] == ROLE_ADMIN
 
+    def test_should_return_403_when_admin_create_admin(self):
+        client = Client()
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role=ROLE_ADMIN,
+            is_staff=True,
+        )
 
-@pytest.mark.django_db
-def test_create_admin_user_view_admin_forbidden():
-    client = Client()
-
-    actor = User.objects.create_user(
-        nik="1111111111111111",
-        password="password123",
-        nama_lengkap="Admin",
-        role=ROLE_ADMIN,
-        is_staff=True,
-    )
-    client.force_login(actor)
-
-    response = client.post(
-        reverse("auth-create-admin-user"),
-        data=json.dumps(
-            {
+        client.force_login(actor)
+        response = client.post(
+            reverse("auth-create-admin-user"),
+            data=json.dumps({
                 "nik": "2222222222222222",
                 "password": "password123",
                 "nama_lengkap": "Admin Baru",
                 "role": ROLE_ADMIN,
-            }
-        ),
-        content_type="application/json",
-    )
+            }),
+            content_type="application/json",
+        )
 
-    assert response.status_code == 403
+        assert response.status_code == 403
 
+    def test_should_return_400_when_role_invalid(self):
+        client = Client()
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Super Admin",
+            role=ROLE_SUPERADMIN,
+            is_staff=True,
+            is_superuser=True,
+        )
 
-@pytest.mark.django_db
-def test_create_admin_user_view_invalid_role_returns_400():
-    client = Client()
-
-    actor = User.objects.create_user(
-        nik="1111111111111111",
-        password="password123",
-        nama_lengkap="Super Admin",
-        role=ROLE_SUPERADMIN,
-        is_staff=True,
-        is_superuser=True,
-    )
-    client.force_login(actor)
-
-    response = client.post(
-        reverse("auth-create-admin-user"),
-        data=json.dumps(
-            {
+        client.force_login(actor)
+        response = client.post(
+            reverse("auth-create-admin-user"),
+            data=json.dumps({
                 "nik": "2222222222222222",
                 "password": "password123",
                 "nama_lengkap": "Role Salah",
                 "role": "KEPALA_SEKSI",
-            }
-        ),
-        content_type="application/json",
-    )
+            }),
+            content_type="application/json",
+        )
 
-    assert response.status_code == 400
+        assert response.status_code == 400
 
+    def test_should_return_400_when_role_is_warga(self):
+        client = Client()
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Super Admin",
+            role=ROLE_SUPERADMIN,
+            is_staff=True,
+            is_superuser=True,
+        )
 
-@pytest.mark.django_db
-def test_create_admin_user_view_role_warga_returns_400():
-    client = Client()
-
-    actor = User.objects.create_user(
-        nik="1111111111111111",
-        password="password123",
-        nama_lengkap="Super Admin",
-        role=ROLE_SUPERADMIN,
-        is_staff=True,
-        is_superuser=True,
-    )
-    client.force_login(actor)
-
-    response = client.post(
-        reverse("auth-create-admin-user"),
-        data=json.dumps(
-            {
+        client.force_login(actor)
+        response = client.post(
+            reverse("auth-create-admin-user"),
+            data=json.dumps({
                 "nik": "2222222222222222",
                 "password": "password123",
                 "nama_lengkap": "Bukan Admin",
                 "role": ROLE_WARGA,
-            }
-        ),
-        content_type="application/json",
-    )
+            }),
+            content_type="application/json",
+        )
 
-    assert response.status_code == 400
-
-
-@pytest.mark.django_db
-def test_activate_user_requires_permission():
-    client = Client()
-
-    actor = User.objects.create_user(
-        nik="1111111111111111",
-        password="password123",
-        nama_lengkap="Warga Aktor",
-        role=ROLE_WARGA,
-    )
-    target = User.objects.create_user(
-        nik="2222222222222222",
-        password="password123",
-        nama_lengkap="Target",
-        role=ROLE_WARGA,
-        is_active=False,
-    )
-
-    client.force_login(actor)
-    response = client.post(reverse("auth-activate-user", kwargs={"user_id": str(target.id)}))
-
-    assert response.status_code == 403
+        assert response.status_code == 400
 
 
 @pytest.mark.django_db
-def test_admin_can_activate_warga():
-    client = Client()
+class TestActivationView:
 
-    actor = User.objects.create_user(
-        nik="1111111111111111",
-        password="password123",
-        nama_lengkap="Admin",
-        role=ROLE_ADMIN,
-        is_staff=True,
-    )
-    target = User.objects.create_user(
-        nik="2222222222222222",
-        password="password123",
-        nama_lengkap="Target",
-        role=ROLE_WARGA,
-        is_active=False,
-    )
+    def test_should_return_403_when_user_has_no_permission(self):
+        client = Client()
 
-    client.force_login(actor)
-    response = client.post(reverse("auth-activate-user", kwargs={"user_id": str(target.id)}))
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Warga",
+            role=ROLE_WARGA,
+        )
+        target = User.objects.create_user(
+            nik="2222222222222222",
+            password="password123",
+            nama_lengkap="Target",
+            role=ROLE_WARGA,
+            is_active=False,
+        )
 
-    assert response.status_code == 200
-    target.refresh_from_db()
-    assert target.is_active is True
+        client.force_login(actor)
+        response = client.post(reverse("auth-activate-user", kwargs={"user_id": str(target.id)}))
 
+        assert response.status_code == 403
 
-@pytest.mark.django_db
-def test_deactivate_user_view_not_found_returns_404():
-    client = Client()
+    def test_should_allow_admin_to_activate_warga(self):
+        client = Client()
 
-    actor = User.objects.create_user(
-        nik="1111111111111111",
-        password="password123",
-        nama_lengkap="Admin",
-        role=ROLE_ADMIN,
-        is_staff=True,
-    )
-    client.force_login(actor)
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role=ROLE_ADMIN,
+            is_staff=True,
+        )
+        target = User.objects.create_user(
+            nik="2222222222222222",
+            password="password123",
+            nama_lengkap="Target",
+            role=ROLE_WARGA,
+            is_active=False,
+        )
 
-    response = client.post(
-        reverse("auth-deactivate-user", kwargs={"user_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"})
-    )
+        client.force_login(actor)
+        response = client.post(reverse("auth-activate-user", kwargs={"user_id": str(target.id)}))
 
-    assert response.status_code == 404
+        assert response.status_code == 200
+        target.refresh_from_db()
+        assert target.is_active is True
+
+    def test_should_return_404_when_deactivate_user_not_found(self):
+        client = Client()
+
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role=ROLE_ADMIN,
+            is_staff=True,
+        )
+
+        client.force_login(actor)
+        response = client.post(
+            reverse("auth-deactivate-user", kwargs={"user_id": str(uuid.uuid4())})
+        )
+
+        assert response.status_code == 404
