@@ -1,0 +1,37 @@
+{% extends "pdf_templates/surat_base.html" %}
+
+{% block content %}
+<div class="judul-surat">
+    <h3>SURAT KETERANGAN TIDAK MAMPU</h3>
+    <p>Nomor: {{ surat.nomor_surat }}</p>
+</div>
+
+<div class="konten">
+    <p>Yang bertanda tangan di bawah ini Kepala Desa Mandian Gajah, Kecamatan Minas, Kabupaten Siak, menerangkan dengan sesungguhnya bahwa:</p>
+
+    <table class="biodata-table">
+        <tr>
+            <td class="td-label">Nama Lengkap</td>
+            <td class="td-colon">:</td>
+            <td><strong>{{ pemohon.nama_lengkap }}</strong></td>
+        </tr>
+        <tr>
+            <td class="td-label">NIK</td>
+            <td class="td-colon">:</td>
+            <td>{{ pemohon.nik }}</td>
+        </tr>
+        <tr>
+            <td class="td-label">Pekerjaan</td>
+            <td class="td-colon">:</td>
+            <td>{{ pemohon.pekerjaan|default:"Belum/Tidak Bekerja" }}</td>
+        </tr>
+    </table>
+
+    <p>Berdasarkan pengamatan dan data administrasi kami, nama tersebut di atas benar warga Desa Mandian Gajah dan saat ini berkeadaan <strong>Ekonomi Lemah / Tidak Mampu (Keluarga Pra Sejahtera)</strong>.</p>
+    
+    <p>Surat keterangan ini dibuat untuk keperluan:</p>
+    <p style="padding-left: 20px; font-style: italic;">"{{ surat.keperluan }}"</p>
+
+    <p>Demikian surat keterangan ini kami buat dengan sebenarnya agar dapat dipergunakan sebagaimana mestinya oleh pihak yang berkepentingan.</p>
+</div>
+{% endblock %}

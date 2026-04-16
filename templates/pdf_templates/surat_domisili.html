@@ -1,0 +1,31 @@
+{% extends "pdf_templates/surat_base.html" %}
+
+{% block content %}
+<div class="judul-surat">
+    <h3>SURAT KETERANGAN DOMISILI</h3>
+    <p>Nomor: {{ surat.nomor_surat }}</p>
+</div>
+
+<div class="konten">
+    <p>Yang bertanda tangan di bawah ini Kepala Desa Mandian Gajah, Kecamatan Minas, Kabupaten Siak, menerangkan bahwa:</p>
+
+    <table class="biodata-table">
+        <tr>
+            <td class="td-label">Nama Lengkap</td>
+            <td class="td-colon">:</td>
+            <td><strong>{{ pemohon.nama_lengkap }}</strong></td>
+        </tr>
+        <tr>
+            <td class="td-label">NIK</td>
+            <td class="td-colon">:</td>
+            <td>{{ pemohon.nik }}</td>
+        </tr>
+    </table>
+
+    <p>Orang tersebut di atas adalah benar-benar warga yang berdomisili / bertempat tinggal di Desa Mandian Gajah, Kecamatan Minas, Kabupaten Siak. Surat ini dikeluarkan berdasarkan permintaan yang bersangkutan untuk keperluan:</p>
+    
+    <p style="padding-left: 20px; font-weight: bold;">{{ surat.keperluan }}</p>
+
+    <p>Demikian Surat Keterangan Domisili ini dibuat untuk dapat dipergunakan sebagaimana mestinya.</p>
+</div>
+{% endblock %}

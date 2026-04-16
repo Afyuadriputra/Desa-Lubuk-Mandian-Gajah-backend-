@@ -1,0 +1,42 @@
+{% extends "pdf_templates/surat_base.html" %}
+
+{% block content %}
+<div class="judul-surat">
+    <h3>SURAT KETERANGAN USAHA</h3>
+    <p>Nomor: {{ surat.nomor_surat }}</p>
+</div>
+
+<div class="konten">
+    <p>Yang bertanda tangan di bawah ini Kepala Desa Mandian Gajah, Kecamatan Minas, Kabupaten Siak, dengan ini menerangkan bahwa:</p>
+
+    <table class="biodata-table">
+        <tr>
+            <td class="td-label">Nama Lengkap</td>
+            <td class="td-colon">:</td>
+            <td><strong>{{ pemohon.nama_lengkap }}</strong></td>
+        </tr>
+        <tr>
+            <td class="td-label">NIK</td>
+            <td class="td-colon">:</td>
+            <td>{{ pemohon.nik }}</td>
+        </tr>
+        <tr>
+            <td class="td-label">Jenis Kelamin</td>
+            <td class="td-colon">:</td>
+            <td>{{ pemohon.jenis_kelamin|default:"-" }}</td> </tr>
+        <tr>
+            <td class="td-label">Agama</td>
+            <td class="td-colon">:</td>
+            <td>{{ pemohon.agama|default:"-" }}</td>
+        </tr>
+    </table>
+
+    <p>Adalah benar nama tersebut di atas penduduk yang berdomisili di Desa Mandian Gajah dan benar bahwa yang bersangkutan memiliki usaha:</p>
+    
+    <p style="text-align: center; font-weight: bold; font-size: 14pt; margin: 20px 0;">
+        "{{ surat.keperluan }}"
+    </p>
+
+    <p>Surat keterangan ini diberikan kepada yang bersangkutan untuk dipergunakan sebagaimana mestinya dan kepada instansi yang berwenang agar dapat memberikan bantuan seperlunya.</p>
+</div>
+{% endblock %}

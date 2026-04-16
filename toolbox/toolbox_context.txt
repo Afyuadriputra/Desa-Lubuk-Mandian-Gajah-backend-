@@ -1,0 +1,630 @@
+SYSTEM TOOLBOX CONTEXT - SHARED UTILITIES
+Root: D:\Kuliah\joki\radit\desa\backend\toolbox
+======================================================================
+
+################### MODULE: logging\app_logger.py ####################
+# toolbox/logging/app_logger.py
+
+import os
+import sys
+from pathlib import Path
+
+from loguru import logger
+
+from toolbox.logging.request_context import get_request_id, get_user_id
+
+# Pastikan folder logs tersedia
+Path("logs").mkdir(exist_ok=True)
+
+LOG_LEVEL = os.getenv("APP_LOG_LEVEL", "DEBUG").upper()
+APP_ENV = os.getenv("APP_ENV", "development").lower()
+IS_PRODUCTION = APP_ENV == "production"
+
+LOGGER_FORMAT = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+    "<level>{level: <8}</level> | "
+    "req=<magenta>{extra[request_id]}</magenta> | "
+    "user=<yellow>{extra[user_id]}</yellow> | "
+    "<cyan>{extra[logger_name]}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+    "{message}"
+)
+
+# Reset default handler bawaan loguru
+logger.remove()
+
+# Console logger
+logger.add(
+    sys.stdout,
+    level=LOG_LEVEL,
+    format=LOGGER_FORMAT,
+    colorize=True,
+    backtrace=not IS_PRODUCTION,
+    diagnose=not IS_PRODUCTION,  # matikan di production
+    enqueue=True,
+)
+
+# File logger untuk error
+logger.add(
+    "logs/error.log",
+    level="ERROR",
+    format=LOGGER_FORMAT,
+    rotation="10 MB",
+    retention="14 days",
+    compression="zip",
+    backtrace=not IS_PRODUCTION,
+    diagnose=False,
+    enqueue=True,
+)
+
+# File logger untuk semua aplikasi
+logger.add(
+    "logs/app.log",
+    level=LOG_LEVEL,
+    format=LOGGER_FORMAT,
+    rotation="10 MB",
+    retention="14 days",
+    compression="zip",
+    backtrace=not IS_PRODUCTION,
+    diagnose=False,
+    enqueue=True,
+)
+
+
+def get_logger(name: str | None = None):
+    """
+    Ambil logger yang sudah terikat dengan:
+    - logger_name
+    - request_id
+    - user_id
+    """
+    return logger.bind(
+        logger_name=name or "app",
+        request_id=get_request_id() or "-",
+        user_id=get_user_id() or "-",
+    )
+
+
+def refresh_logger(name: str | None = None):
+    """
+    Ambil logger baru dengan request context terbaru.
+    Berguna jika context di-set setelah logger awal dibuat.
+    """
+    return get_logger(name=name)
+
+======================================================================
+
+###################### MODULE: logging\audit.py ######################
+# toolbox/logging/audit.py
+
+from toolbox.logging.app_logger import get_logger
+
+
+def audit_event(
+    action: str,
+    actor_id=None,
+    actor_role: str | None = None,
+    target: str | None = None,
+    target_id=None,
+    metadata: dict | None = None,
+) -> None:
+    logger = get_logger("audit")
+    logger.info(
+        "AUDIT action={action} actor_id={actor_id} actor_role={actor_role} "
+        "target={target} target_id={target_id} metadata={metadata}",
+        action=action,
+        actor_id=actor_id,
+        actor_role=actor_role,
+        target=target,
+        target_id=target_id,
+        metadata=metadata or {},
+    )
+
+======================================================================
+
+################### MODULE: logging\middleware.py ####################
+# toolbox/logging/middleware.py
+
+from toolbox.logging.request_context import (
+    clear_request_context,
+    generate_request_id,
+    set_request_context,
+)
+
+
+class RequestContextMiddleware:
+    """
+    Middleware untuk:
+    - membuat request_id
+    - menyimpan request context ke ContextVar
+    - menambahkan X-Request-ID ke response
+    - membersihkan context setelah request selesai
+    """
+
+    REQUEST_ID_HEADER = "X-Request-ID"
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        request_id = request.headers.get(self.REQUEST_ID_HEADER) or generate_request_id()
+
+        user_id = None
+        user = getattr(request, "user", None)
+        if user is not None and getattr(user, "is_authenticated", False):
+            user_id = getattr(user, "id", None)
+
+        set_request_context(
+            request_id=request_id,
+            user_id=user_id,
+            path=request.path,
+            method=request.method,
+        )
+
+        try:
+            response = self.get_response(request)
+            response[self.REQUEST_ID_HEADER] = request_id
+            return response
+        finally:
+            clear_request_context()
+
+======================================================================
+
+################# MODULE: logging\request_context.py #################
+# toolbox/logging/request_context.py
+
+import uuid
+from contextvars import ContextVar
+
+request_id_ctx: ContextVar[str | None] = ContextVar("request_id", default=None)
+user_id_ctx: ContextVar[str | None] = ContextVar("user_id", default=None)
+request_path_ctx: ContextVar[str | None] = ContextVar("request_path", default=None)
+request_method_ctx: ContextVar[str | None] = ContextVar("request_method", default=None)
+
+
+def generate_request_id() -> str:
+    return str(uuid.uuid4())
+
+
+def set_request_context(
+    request_id: str | None = None,
+    user_id: str | int | None = None,
+    path: str | None = None,
+    method: str | None = None,
+) -> None:
+    request_id_ctx.set(request_id or generate_request_id())
+    user_id_ctx.set(str(user_id) if user_id is not None else None)
+    request_path_ctx.set(path)
+    request_method_ctx.set(method)
+
+
+def get_request_id() -> str | None:
+    return request_id_ctx.get()
+
+
+def get_user_id() -> str | None:
+    return user_id_ctx.get()
+
+
+def get_request_path() -> str | None:
+    return request_path_ctx.get()
+
+
+def get_request_method() -> str | None:
+    return request_method_ctx.get()
+
+
+def get_request_context() -> dict[str, str | None]:
+    return {
+        "request_id": get_request_id(),
+        "user_id": get_user_id(),
+        "path": get_request_path(),
+        "method": get_request_method(),
+    }
+
+
+def clear_request_context() -> None:
+    request_id_ctx.set(None)
+    user_id_ctx.set(None)
+    request_path_ctx.set(None)
+    request_method_ctx.set(None)
+
+======================================================================
+
+##################### MODULE: logging\sentry.py ######################
+# toolbox/logging/sentry.py
+
+import os
+
+import sentry_sdk
+
+
+def init_sentry() -> None:
+    dsn = os.getenv("SENTRY_DSN", "").strip()
+    if not dsn:
+        return
+
+    sentry_sdk.init(
+        dsn=dsn,
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0")),
+    )
+
+======================================================================
+
+################## MODULE: pdf_generator\naming.py ###################
+# toolbox/pdf_generator/naming.py
+
+from django.utils import timezone
+
+def generate_nomor_surat(jenis_surat: str, unique_id: str) -> str:
+    """
+    Menghasilkan nomor surat dengan format resmi.
+    Contoh: 470/SKU/IV/2026/A1B2
+    Kode 470 biasanya adalah klasifikasi administrasi kependudukan.
+    """
+    now = timezone.now()
+    
+    # Konversi bulan ke Romawi
+    bulan_romawi = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"]
+    bulan = bulan_romawi[now.month]
+    tahun = now.year
+    
+    # Ambil 4 karakter pertama dari ID untuk keunikan
+    short_id = str(unique_id).split("-")[0][:4].upper()
+    
+    return f"470/{jenis_surat.upper()}/{bulan}/{tahun}/{short_id}"
+
+======================================================================
+
+################# MODULE: pdf_generator\renderer.py ##################
+# toolbox/pdf_generator/renderer.py
+
+import io
+from weasyprint import HTML
+from toolbox.logging import get_logger
+
+logger = get_logger("toolbox.pdf_generator")
+
+def generate_pdf_from_html(html_string: str, base_url: str | None = None) -> bytes:
+    """
+    Menghasilkan data byte PDF dari string HTML menggunakan WeasyPrint.
+    base_url berguna jika HTML merujuk ke static file lokal (CSS/Images).
+    """
+    try:
+        pdf_file = HTML(string=html_string, base_url=base_url).write_pdf()
+        return pdf_file
+    except Exception as e:
+        logger.error("Gagal men-generate PDF: {error}", error=str(e))
+        raise RuntimeError(f"Kegagalan internal saat merender PDF: {e}")
+
+======================================================================
+
+################# MODULE: pdf_generator\templates.py #################
+# toolbox/pdf_generator/templates.py
+
+from django.template.loader import render_to_string
+
+def render_surat_html(template_name: str, context: dict) -> str:
+    """
+    Merender template Django HTML dengan data context menjadi string.
+    Contoh template_name: "pdf_templates/surat_keterangan_usaha.html"
+    """
+    return render_to_string(template_name, context)
+
+======================================================================
+
+###################### MODULE: security\auth.py ######################
+# toolbox/security/auth.py
+
+ROLE_SUPERADMIN = "SUPERADMIN"
+ROLE_ADMIN = "ADMIN"
+ROLE_BUMDES = "BUMDES"
+ROLE_WARGA = "WARGA"
+
+INTERNAL_ADMIN_ROLES = {ROLE_SUPERADMIN, ROLE_ADMIN}
+BUMDES_ADMIN_ROLES = {ROLE_SUPERADMIN, ROLE_ADMIN, ROLE_BUMDES}
+
+
+def is_authenticated_user(user) -> bool:
+    return bool(user and getattr(user, "is_authenticated", False))
+
+
+def is_active_user(user) -> bool:
+    return is_authenticated_user(user) and getattr(user, "is_active", False)
+
+
+def get_user_role(user) -> str | None:
+    if not is_authenticated_user(user):
+        return None
+    return getattr(user, "role", None)
+
+
+def has_role(user, role: str) -> bool:
+    return is_active_user(user) and get_user_role(user) == role
+
+
+def has_any_role(user, roles: set[str] | list[str] | tuple[str, ...]) -> bool:
+    return is_active_user(user) and get_user_role(user) in roles
+
+
+def is_superadmin(user) -> bool:
+    return has_role(user, ROLE_SUPERADMIN)
+
+
+def is_admin_desa(user) -> bool:
+    return has_role(user, ROLE_ADMIN)
+
+
+def is_admin_bumdes(user) -> bool:
+    return has_role(user, ROLE_BUMDES)
+
+
+def is_warga(user) -> bool:
+    return has_role(user, ROLE_WARGA)
+
+
+def is_internal_admin(user) -> bool:
+    return has_any_role(user, INTERNAL_ADMIN_ROLES)
+
+
+def can_manage_bumdes(user) -> bool:
+    return has_any_role(user, BUMDES_ADMIN_ROLES)
+
+======================================================================
+
+##################### MODULE: security\checks.py #####################
+# toolbox/security/checks.py
+
+def is_debug_enabled(settings_obj) -> bool:
+    return bool(getattr(settings_obj, "DEBUG", False))
+
+
+def has_secret_key(settings_obj) -> bool:
+    return bool(getattr(settings_obj, "SECRET_KEY", ""))
+
+
+def has_allowed_hosts(settings_obj) -> bool:
+    return bool(getattr(settings_obj, "ALLOWED_HOSTS", []))
+
+======================================================================
+
+################## MODULE: security\permissions.py ###################
+# toolbox/security/permissions.py
+
+from toolbox.security.auth import (
+    is_active_user,
+    is_internal_admin,
+    is_superadmin,
+    can_manage_bumdes as _can_manage_bumdes,
+)
+
+
+def is_resource_owner(user, owner_id) -> bool:
+    if not is_active_user(user):
+        return False
+    return str(getattr(user, "id", "")) == str(owner_id)
+
+
+def can_view_own_resource(user, owner_id) -> bool:
+    return is_resource_owner(user, owner_id)
+
+
+def can_view_all_surat(user) -> bool:
+    return is_internal_admin(user)
+
+
+def can_process_surat(user) -> bool:
+    return is_internal_admin(user)
+
+
+def can_view_all_pengaduan(user) -> bool:
+    return is_internal_admin(user)
+
+
+def can_handle_pengaduan(user) -> bool:
+    return is_internal_admin(user)
+
+
+def can_manage_publikasi(user) -> bool:
+    return is_internal_admin(user)
+
+
+def can_manage_wilayah(user) -> bool:
+    return is_internal_admin(user)
+
+
+def can_manage_bumdes(user) -> bool:
+    return _can_manage_bumdes(user)
+
+
+def can_manage_admin_accounts(user) -> bool:
+    return is_superadmin(user)
+
+
+def can_manage_warga_accounts(user) -> bool:
+    return is_internal_admin(user)
+
+======================================================================
+
+################### MODULE: security\sanitizers.py ###################
+# toolbox/security/sanitizers.py
+
+import bleach
+
+ALLOWED_TAGS = [
+    "p", "br", "strong", "em", "u",
+    "ul", "ol", "li",
+    "blockquote",
+    "h1", "h2", "h3", "h4",
+    "a",
+]
+
+ALLOWED_ATTRIBUTES = {
+    "a": ["href", "title", "target", "rel"],
+}
+
+ALLOWED_PROTOCOLS = ["http", "https", "mailto"]
+
+
+def sanitize_html(value: str | None) -> str:
+    if not value:
+        return ""
+    return bleach.clean(
+        value,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        protocols=ALLOWED_PROTOCOLS,
+        strip=True,
+    )
+
+
+def sanitize_plain_text(value: str | None) -> str:
+    if not value:
+        return ""
+    return bleach.clean(value, tags=[], attributes={}, strip=True).strip()
+
+
+def sanitize_rich_text_content(value: str | None) -> str:
+    return sanitize_html(value)
+
+======================================================================
+
+############### MODULE: security\upload_validators.py ################
+# toolbox/security/upload_validators.py
+
+from pathlib import Path
+from django.core.exceptions import ValidationError
+
+DEFAULT_MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def get_file_extension(file) -> str:
+    return Path(file.name).suffix.lower()
+
+
+def validate_file_size(file, max_size: int = DEFAULT_MAX_FILE_SIZE) -> None:
+    if file.size > max_size:
+        raise ValidationError(f"Ukuran file maksimal {max_size // (1024 * 1024)} MB.")
+
+
+def validate_extension(file, allowed_extensions: set[str]) -> None:
+    ext = get_file_extension(file)
+    if ext not in allowed_extensions:
+        raise ValidationError(
+            f"Format file tidak didukung. Format yang diizinkan: {', '.join(sorted(allowed_extensions))}."
+        )
+
+
+def validate_image_upload(file, max_size: int = DEFAULT_MAX_FILE_SIZE) -> None:
+    validate_file_size(file, max_size=max_size)
+    validate_extension(file, IMAGE_EXTENSIONS)
+
+    content_type = getattr(file, "content_type", "")
+    if not content_type.startswith("image/"):
+        raise ValidationError("File harus berupa gambar yang valid.")
+
+======================================================================
+
+###################### MODULE: storage\media.py ######################
+# toolbox/storage/media.py
+
+from pathlib import Path
+from uuid import uuid4
+
+from django.utils.text import slugify
+
+
+def get_file_extension(filename: str) -> str:
+    return Path(filename).suffix.lower()
+
+
+def get_file_stem(filename: str) -> str:
+    return Path(filename).stem
+
+
+def make_safe_filename(filename: str, prefix: str | None = None) -> str:
+    ext = get_file_extension(filename)
+    stem = slugify(get_file_stem(filename)) or "file"
+    unique_id = uuid4().hex[:12]
+
+    if prefix:
+        safe_prefix = slugify(prefix)
+        return f"{safe_prefix}-{stem}-{unique_id}{ext}"
+
+    return f"{stem}-{unique_id}{ext}"
+
+======================================================================
+
+###################### MODULE: storage\paths.py ######################
+# toolbox/storage/paths.py
+
+from django.utils import timezone
+
+from toolbox.storage.media import make_safe_filename
+
+
+def _date_path() -> str:
+    now = timezone.now()
+    return f"{now:%Y}/{now:%m}"
+
+
+def perangkat_photo_upload_path(instance, filename: str) -> str:
+    safe_name = make_safe_filename(filename, prefix="perangkat")
+    return f"perangkat/{_date_path()}/{safe_name}"
+
+
+def pengaduan_bukti_upload_path(instance, filename: str) -> str:
+    safe_name = make_safe_filename(filename, prefix="pengaduan")
+    return f"pengaduan/{_date_path()}/{safe_name}"
+
+
+def publikasi_media_upload_path(instance, filename: str) -> str:
+    safe_name = make_safe_filename(filename, prefix="publikasi")
+    return f"publikasi/{_date_path()}/{safe_name}"
+
+
+def bumdes_media_upload_path(instance, filename: str) -> str:
+    safe_name = make_safe_filename(filename, prefix="bumdes")
+    return f"bumdes/{_date_path()}/{safe_name}"
+
+
+def surat_pdf_upload_path(instance, filename: str) -> str:
+    safe_name = make_safe_filename(filename, prefix="surat")
+    return f"surat/{_date_path()}/{safe_name}"
+
+======================================================================
+
+################### MODULE: storage\validators.py ####################
+# toolbox/storage/validators.py
+
+from pathlib import Path
+
+from django.core.exceptions import ValidationError
+
+MAX_FILENAME_LENGTH = 150
+
+
+def validate_filename(filename: str) -> None:
+    if not filename or not filename.strip():
+        raise ValidationError("Nama file tidak boleh kosong.")
+
+    if len(filename) > MAX_FILENAME_LENGTH:
+        raise ValidationError(f"Nama file terlalu panjang. Maksimal {MAX_FILENAME_LENGTH} karakter.")
+
+
+def validate_allowed_extensions(filename: str, allowed_extensions: set[str]) -> None:
+    ext = Path(filename).suffix.lower()
+    if ext not in allowed_extensions:
+        raise ValidationError(
+            f"Format file tidak diizinkan. Format yang didukung: {', '.join(sorted(allowed_extensions))}."
+        )
+
+
+def validate_file_size(file, max_size: int) -> None:
+    if file.size > max_size:
+        raise ValidationError(
+            f"Ukuran file melebihi batas maksimum {max_size // (1024 * 1024)} MB."
+        )
+
+======================================================================
+
