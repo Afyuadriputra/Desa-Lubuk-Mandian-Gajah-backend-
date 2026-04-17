@@ -3,7 +3,7 @@
 import bleach
 
 ALLOWED_TAGS = [
-    "p", "br", "strong", "em", "u",
+    "p", "br", "strong", "em", "u", "b", "i", 
     "ul", "ol", "li",
     "blockquote",
     "h1", "h2", "h3", "h4",
