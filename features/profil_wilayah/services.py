@@ -50,10 +50,17 @@ class ProfilDesaService:
     def __init__(self, repo: ProfilDesaRepository = None):
         self.repo = repo or ProfilDesaRepository()
 
+    # features/profil_wilayah/services.py
+# Tidak perlu lagi mengimpor sanitize_html atau bleach di sini!
+
     def perbarui_profil(self, actor, visi: str, misi: str, sejarah: str):
         if not can_manage_data_wilayah(actor):
             raise ProfilWilayahAccessError("Akses ditolak.")
-        validate_profil_desa(visi, misi, sejarah)
+            
+        # domain validation tetap berjalan
+        validate_profil_desa(visi, misi, sejarah) 
+        
+        # Data visi, misi, sejarah sudah otomatis ter-sanitasi oleh Pydantic Schema!
         profil = self.repo.update_profil(visi, misi, sejarah)
         audit_event("PROFIL_DESA_UPDATED", actor_id=actor.id)
         return profil

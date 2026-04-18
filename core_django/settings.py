@@ -58,6 +58,8 @@ LOCAL_APPS = [
     "features.layanan_administrasi",
     "features.pengaduan_warga",
     "features.potensi_ekonomi",
+    #admin
+    "features.dashboard_admin",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

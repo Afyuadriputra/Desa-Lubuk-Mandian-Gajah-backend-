@@ -40,31 +40,6 @@ class TestPotensiEkonomiService:
         with pytest.raises(PermissionDeniedError, match="Anda tidak memiliki izin"):
             service.buat_unit_usaha(mock_warga, {"nama_usaha": "Taman", "kategori": KATEGORI_WISATA})
 
-    def test_sanitasi_html_diterapkan_untuk_cegah_xss(self, service, mock_admin, mock_repo, mocker):
-        """Test: Input dengan script jahat harus dibersihkan sebelum masuk DB."""
-        mocker.patch("features.potensi_ekonomi.services.audit_event")
-        # PERBAIKAN: Kita mock can_manage_data_bumdes di tempat ia DIPAKAI (services)
-        mocker.patch("features.potensi_ekonomi.services.can_manage_data_bumdes", return_value=True)
-        
-        # Buat kembalian palsu dari repository
-        mock_repo.create_unit.return_value = mocker.Mock(id=1, nama_usaha="Taman")
-        
-        # Ini adalah variabel data_kotor yang sempat hilang
-        data_kotor = {
-            "nama_usaha": "Taman Indah",
-            "kategori": KATEGORI_WISATA,
-            "deskripsi": "<script>alert('XSS')</script><p>Deskripsi aman</p>"
-        }
-        
-        service.buat_unit_usaha(mock_admin, data_kotor)
-        
-        # Ambil argumen yang dikirim ke repository
-        args, _ = mock_repo.create_unit.call_args
-        data_tersimpan = args[0]
-        
-        # Script tag jahat harus terhapus dari deskripsi
-        assert "<script>" not in data_tersimpan["deskripsi"]
-
     def test_warga_tidak_bisa_lihat_detail_draft(self, service, mock_warga, mock_repo, mocker):
         """Test: Mencegah Warga melihat Unit Usaha yang is_published=False."""
         mocker.patch("features.potensi_ekonomi.permissions.can_manage_data_bumdes", return_value=False)

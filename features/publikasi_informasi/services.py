@@ -2,18 +2,17 @@
 
 from django.utils import timezone
 from features.publikasi_informasi.domain import (
-    PublikasiError, validate_publikasi_input, STATUS_PUBLISHED, STATUS_DRAFT
+    PublikasiError, validate_publikasi_input, STATUS_PUBLISHED
 )
 from features.publikasi_informasi.permissions import can_create_or_edit_publikasi
 from features.publikasi_informasi.repositories import PublikasiRepository
 from toolbox.logging import audit_event
-from toolbox.security.sanitizers import sanitize_rich_text_content
+# Import sanitize_rich_text_content DIHAPUS
 
 class PublikasiAccessError(Exception):
     pass
 
 class PublikasiService:
-    # Dependency Inversion: Repository diinjeksi
     def __init__(self, repo: PublikasiRepository = None):
         self.repo = repo or PublikasiRepository()
 
@@ -23,14 +22,14 @@ class PublikasiService:
 
         validate_publikasi_input(judul, konten_html, jenis, status)
 
-        # SANITASI HTML: Mencegah XSS Attack dari input WYSIWYG Editor Frontend
-        clean_html = sanitize_rich_text_content(konten_html)
+        # KISS: Tidak perlu lagi memanggil sanitize_rich_text_content(konten_html) manual!
+        # Variabel 'konten_html' di sini sudah dijamin aman oleh Pydantic.
 
         published_at = timezone.now() if status == STATUS_PUBLISHED else None
 
         publikasi = self.repo.create({
-            "judul": judul.strip(),
-            "konten_html": clean_html,
+            "judul": judul, # Sudah otomatis di .strip() oleh SafePlainTextString
+            "konten_html": konten_html,
             "jenis": jenis,
             "status": status,
             "penulis_id": actor.id,

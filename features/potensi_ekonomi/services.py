@@ -15,8 +15,8 @@ from features.potensi_ekonomi.permissions import (
 )
 from features.potensi_ekonomi.repositories import UnitUsahaRepository
 from toolbox.logging import audit_event, get_logger
-from toolbox.security.sanitizers import sanitize_rich_text_content
 from toolbox.security.upload_validators import validate_image_upload
+# Import sanitize_rich_text_content dihapus karena sudah ditangani otomatis oleh Schema Ninja.
 
 
 class PermissionDeniedError(Exception):
@@ -38,6 +38,7 @@ class PotensiEkonomiService:
         if not can_manage_data_bumdes(actor):
             raise PermissionDeniedError("Anda tidak memiliki izin mengelola data BUMDes.")
 
+        # Validasi domain (business rules) tetap berjalan
         validate_kategori(data.get("kategori"))
         validate_input_usaha(data.get("nama_usaha"), data.get("kontak_wa", ""))
 
@@ -47,19 +48,18 @@ class PotensiEkonomiService:
             except ValidationError as e:
                 raise FileUploadError(str(e.message))
 
-        # Sanitasi input HTML jika frontend menggunakan WYSIWYG editor
-        clean_deskripsi = sanitize_rich_text_content(data.get("deskripsi", ""))
-        clean_fasilitas = sanitize_rich_text_content(data.get("fasilitas", ""))
-
+        # KISS & DRY: Dictionary 'data' dari API Pydantic/Ninja sudah terjamin 
+        # tipe datanya (boolean, float) dan bersih dari XSS (SafeHTMLString).
         create_data = {
-            "nama_usaha": data.get("nama_usaha").strip(),
+            "nama_usaha": data.get("nama_usaha"),
             "kategori": data.get("kategori"),
-            "deskripsi": clean_deskripsi,
-            "fasilitas": clean_fasilitas,
-            "kontak_wa": data.get("kontak_wa", "").strip(),
-            "harga_tiket": data.get("harga_tiket") or None,
-            "is_published": str(data.get("is_published", "false")).lower() == "true",
+            "deskripsi": data.get("deskripsi"),
+            "fasilitas": data.get("fasilitas"),
+            "kontak_wa": data.get("kontak_wa"),
+            "harga_tiket": data.get("harga_tiket"),
+            "is_published": data.get("is_published", False),
         }
+        
         if foto:
             create_data["foto_utama"] = foto
 
