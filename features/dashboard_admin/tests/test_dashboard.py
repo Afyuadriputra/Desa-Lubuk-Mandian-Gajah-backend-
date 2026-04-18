@@ -1,133 +1,291 @@
-# features/dashboard_admin/tests/test_dashboard.py
+from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.urls import reverse
-from django.test import Client
+from django.core.cache import cache
+from django.utils import timezone
 
-from features.dashboard_admin.services import DashboardService
 from features.dashboard_admin.domain import DashboardAccessError
-from features.layanan_administrasi.models import LayananSurat
-from features.pengaduan_warga.models import LayananPengaduan
+from features.dashboard_admin.services import DashboardService
+from features.layanan_administrasi.models import LayananSurat, LayananSuratStatusHistory
+from features.pengaduan_warga.models import LayananPengaduan, LayananPengaduanHistory
 from features.potensi_ekonomi.models import BumdesUnitUsaha
+from features.profil_wilayah.models import ProfilDesa, WilayahDusun, WilayahPerangkat
+from features.publikasi_informasi.models import Publikasi
 
 User = get_user_model()
 
 
-# =====================================================================
-# 🔹 SETUP FIXTURES (Menyiapkan Data Uji)
-# =====================================================================
-@pytest.fixture
-def users():
-    warga1 = User.objects.create_user(nik="1111111111111111", password="pass", nama_lengkap="Warga A", role="WARGA")
-    warga2 = User.objects.create_user(nik="2222222222222222", password="pass", nama_lengkap="Warga B", role="WARGA")
-    
-    # Sesuai Matriks Hak Akses PRD (Admin Desa dan Super Admin)
-    admin_desa = User.objects.create_user(nik="3333333333333333", password="pass", nama_lengkap="Admin Desa", role="ADMIN", is_staff=True)
-    super_admin = User.objects.create_user(nik="4444444444444444", password="pass", nama_lengkap="Kades", role="SUPERADMIN", is_staff=True, is_superuser=True)
-    
-    return {"warga": warga1, "warga2": warga2, "admin_desa": admin_desa, "super_admin": super_admin}
+@pytest.fixture(autouse=True)
+def clear_dashboard_cache():
+    cache.clear()
+
 
 @pytest.fixture
-def seed_data(users):
-    """Membuat data dummy untuk dihitung oleh Dashboard."""
-    warga = users["warga"]
-
-    # 1. Buat 3 Surat (2 PENDING, 1 DONE)
-    LayananSurat.objects.create(pemohon=warga, jenis_surat="SKU", keperluan="Test 1", status="PENDING")
-    LayananSurat.objects.create(pemohon=warga, jenis_surat="SKTM", keperluan="Test 2", status="PENDING")
-    LayananSurat.objects.create(pemohon=warga, jenis_surat="Domisili", keperluan="Test 3", status="DONE")
-
-    # 2. Buat 3 Pengaduan (2 Infrastruktur OPEN, 1 Pelayanan RESOLVED)
-    LayananPengaduan.objects.create(pelapor=warga, kategori="Infrastruktur", judul="Jalan Rusak", deskripsi="Test", status="OPEN")
-    LayananPengaduan.objects.create(pelapor=warga, kategori="Infrastruktur", judul="Jembatan", deskripsi="Test", status="OPEN")
-    LayananPengaduan.objects.create(pelapor=warga, kategori="Pelayanan", judul="KTP Lambat", deskripsi="Test", status="RESOLVED")
-
-    # 3. Buat 2 BUMDes (1 Published, 1 Draft)
-    BumdesUnitUsaha.objects.create(nama_usaha="Koperasi A", kategori="KOPERASI", deskripsi="Test", is_published=True)
-    BumdesUnitUsaha.objects.create(nama_usaha="Wisata B", kategori="WISATA", deskripsi="Test", is_published=False)
+def admin_desa(db):
+    return User.objects.create_user(
+        nik="3333333333333333",
+        password="pass12345",
+        nama_lengkap="Admin Desa",
+        role="ADMIN",
+        is_staff=True,
+    )
 
 
-# =====================================================================
-# 🔹 TEST 1: KEPATUHAN HAK AKSES (PRD Bagian 5 & 9)
-# =====================================================================
+@pytest.fixture
+def dashboard_seed(db, admin_desa, warga_user):
+    now = timezone.now()
+    warga2 = User.objects.create_user(
+        nik="2222222222222222",
+        password="pass12345",
+        nama_lengkap="Warga Kedua",
+        role="WARGA",
+    )
+    User.objects.create_user(
+        nik="5555555555555555",
+        password="pass12345",
+        nama_lengkap="BUMDes User",
+        role="BUMDES",
+        is_staff=True,
+    )
+    inactive_user = User.objects.create_user(
+        nik="6666666666666666",
+        password="pass12345",
+        nama_lengkap="Warga Nonaktif",
+        role="WARGA",
+        is_active=False,
+    )
+    inactive_user.updated_at = now - timedelta(hours=2)
+    inactive_user.save(update_fields=["updated_at"])
+
+    pending_old = LayananSurat.objects.create(pemohon=warga_user, jenis_surat="SKU", keperluan="Untuk usaha toko kelontong", status="PENDING")
+    verified_warning = LayananSurat.objects.create(pemohon=warga_user, jenis_surat="SKTM", keperluan="Pengajuan bantuan pendidikan", status="VERIFIED")
+    processed_recent = LayananSurat.objects.create(pemohon=warga2, jenis_surat="DOMISILI", keperluan="Administrasi tempat tinggal tetap", status="PROCESSED", nomor_surat="470/01")
+    done_surat = LayananSurat.objects.create(pemohon=warga_user, jenis_surat="SKU", keperluan="Pengajuan surat selesai lengkap", status="DONE", nomor_surat="470/02")
+    rejected_surat = LayananSurat.objects.create(
+        pemohon=warga2,
+        jenis_surat="SKTM",
+        keperluan="Permohonan bantuan sosial keluarga",
+        status="REJECTED",
+        rejection_reason="Dokumen belum lengkap",
+    )
+
+    LayananSurat.objects.filter(id=pending_old.id).update(created_at=now - timedelta(hours=80), updated_at=now - timedelta(hours=80))
+    LayananSurat.objects.filter(id=verified_warning.id).update(created_at=now - timedelta(hours=30), updated_at=now - timedelta(hours=30))
+    LayananSurat.objects.filter(id=processed_recent.id).update(created_at=now - timedelta(hours=6), updated_at=now - timedelta(hours=6))
+    LayananSurat.objects.filter(id=done_surat.id).update(created_at=now - timedelta(hours=10), updated_at=now - timedelta(hours=1))
+    LayananSurat.objects.filter(id=rejected_surat.id).update(created_at=now - timedelta(hours=12), updated_at=now - timedelta(hours=1))
+
+    pending_old.refresh_from_db()
+    verified_warning.refresh_from_db()
+    processed_recent.refresh_from_db()
+    done_surat.refresh_from_db()
+    rejected_surat.refresh_from_db()
+
+    LayananSuratStatusHistory.objects.create(
+        surat=done_surat,
+        status_from="PROCESSED",
+        status_to="DONE",
+        changed_by=admin_desa,
+        notes="PDF selesai dibuat",
+        created_at=now - timedelta(hours=1),
+    )
+
+    open_old = LayananPengaduan.objects.create(
+        pelapor=warga_user,
+        kategori="Infrastruktur",
+        judul="Jalan utama rusak berat",
+        deskripsi="Banyak lubang besar dan membahayakan pengendara.",
+        status="OPEN",
+    )
+    triaged_warning = LayananPengaduan.objects.create(
+        pelapor=warga2,
+        kategori="Pelayanan",
+        judul="Pelayanan lambat di kantor desa",
+        deskripsi="Antrian lama dan informasi kurang jelas dari petugas.",
+        status="TRIAGED",
+    )
+    resolved_pengaduan = LayananPengaduan.objects.create(
+        pelapor=warga_user,
+        kategori="Lingkungan",
+        judul="Sampah menumpuk di area pasar",
+        deskripsi="Perlu pengangkutan rutin agar tidak bau.",
+        status="RESOLVED",
+    )
+    closed_pengaduan = LayananPengaduan.objects.create(
+        pelapor=warga2,
+        kategori="Infrastruktur",
+        judul="Lampu jalan mati",
+        deskripsi="Sudah diperbaiki kemarin sore.",
+        status="CLOSED",
+    )
+
+    LayananPengaduan.objects.filter(id=open_old.id).update(created_at=now - timedelta(hours=90), updated_at=now - timedelta(hours=90))
+    LayananPengaduan.objects.filter(id=triaged_warning.id).update(created_at=now - timedelta(hours=28), updated_at=now - timedelta(hours=10))
+    LayananPengaduan.objects.filter(id=resolved_pengaduan.id).update(created_at=now - timedelta(hours=40), updated_at=now - timedelta(hours=2))
+    LayananPengaduan.objects.filter(id=closed_pengaduan.id).update(created_at=now - timedelta(hours=14), updated_at=now - timedelta(hours=3))
+
+    open_old.refresh_from_db()
+    triaged_warning.refresh_from_db()
+    resolved_pengaduan.refresh_from_db()
+    closed_pengaduan.refresh_from_db()
+
+    LayananPengaduanHistory.objects.create(
+        pengaduan=triaged_warning,
+        status_from="OPEN",
+        status_to="TRIAGED",
+        changed_by=admin_desa,
+        notes="Masuk antrian pemeriksaan",
+        created_at=now - timedelta(hours=10),
+    )
+    LayananPengaduanHistory.objects.create(
+        pengaduan=resolved_pengaduan,
+        status_from="IN_PROGRESS",
+        status_to="RESOLVED",
+        changed_by=admin_desa,
+        notes="Sudah ditindaklanjuti",
+        created_at=now - timedelta(hours=2),
+    )
+
+    draft = Publikasi.objects.create(
+        judul="Rencana kerja bakti dusun barat",
+        konten_html="<p>Draft kerja bakti</p>",
+        jenis="PENGUMUMAN",
+        penulis=admin_desa,
+        status="DRAFT",
+    )
+    published = Publikasi.objects.create(
+        judul="Berita panen raya desa",
+        konten_html="<p>Panen raya berjalan sukses</p>",
+        jenis="BERITA",
+        penulis=admin_desa,
+        status="PUBLISHED",
+        published_at=now - timedelta(minutes=30),
+    )
+    Publikasi.objects.filter(id=draft.id).update(created_at=now - timedelta(days=3), updated_at=now - timedelta(days=2))
+    Publikasi.objects.filter(id=published.id).update(created_at=now - timedelta(days=1), updated_at=now - timedelta(minutes=30))
+
+    BumdesUnitUsaha.objects.create(
+        nama_usaha="Wisata Embung Desa",
+        kategori="WISATA",
+        deskripsi="Destinasi wisata keluarga",
+        is_published=True,
+    )
+    BumdesUnitUsaha.objects.create(
+        nama_usaha="Koperasi Makmur",
+        kategori="KOPERASI",
+        deskripsi="Masih disiapkan",
+        is_published=False,
+    )
+
+    WilayahDusun.objects.create(nama_dusun="Dusun Barat", kepala_dusun="Pak Budi")
+    WilayahDusun.objects.create(nama_dusun="Dusun Timur", kepala_dusun="Bu Sari")
+    WilayahPerangkat.objects.create(user=admin_desa, jabatan="Sekretaris Desa", is_published=True)
+    WilayahPerangkat.objects.create(user=warga2, jabatan="Staf Pelayanan", is_published=False)
+    ProfilDesa.objects.create(visi="Desa maju", misi="Pelayanan cepat", sejarah="")
+
+    return {
+        "pending_old": pending_old,
+        "verified_warning": verified_warning,
+        "processed_recent": processed_recent,
+        "done_surat": done_surat,
+        "open_old": open_old,
+        "triaged_warning": triaged_warning,
+        "resolved_pengaduan": resolved_pengaduan,
+    }
+
+
 @pytest.mark.django_db
 class TestDashboardPermissions:
-    
-    def test_warga_tidak_bisa_melihat_dashboard(self, users):
-        """Memastikan role WARGA ditolak saat mengakses dashboard service."""
+    def test_warga_tidak_bisa_melihat_dashboard(self, warga_user):
         service = DashboardService()
-        warga = users["warga"]
-        
-        with pytest.raises(Exception): # Menangkap DashboardAccessError / PermissionDeniedError
-            service.get_analitik_lengkap(actor=warga)
+        with pytest.raises(DashboardAccessError):
+            service.get_overview(actor=warga_user)
 
-    def test_admin_desa_bisa_melihat_dashboard(self, users, seed_data):
-        """Memastikan Admin Desa memiliki izin melihat analitik."""
-        service = DashboardService()
-        admin = users["admin_desa"]
-        
-        data = service.get_analitik_lengkap(actor=admin)
-        assert "summary" in data
-
-    def test_super_admin_bisa_melihat_dashboard(self, users, seed_data):
-        """Memastikan Super Admin memiliki izin melihat analitik."""
-        service = DashboardService()
-        super_admin = users["super_admin"]
-        
-        data = service.get_analitik_lengkap(actor=super_admin)
-        assert "summary" in data
+    def test_admin_desa_bisa_melihat_dashboard(self, admin_desa, dashboard_seed):
+        data = DashboardService().get_overview(actor=admin_desa)
+        assert "summary" in data["data"]
 
 
-# =====================================================================
-# 🔹 TEST 2: AKURASI AGREGASI DATA (PRD Bagian 6.2)
-# =====================================================================
+@pytest.mark.django_db
+class TestDashboardOverview:
+    def test_overview_summary_alerts_quick_actions(self, admin_desa, dashboard_seed):
+        data = DashboardService().get_overview(actor=admin_desa)["data"]
+
+        assert data["summary"]["surat_pending"] == 1
+        assert data["summary"]["surat_verified"] == 1
+        assert data["summary"]["surat_processed"] == 1
+        assert data["summary"]["surat_done"] == 1
+        assert data["summary"]["surat_rejected"] == 1
+        assert data["summary"]["pengaduan_aktif"] == 2
+        assert data["summary"]["pengaduan_selesai"] == 2
+        assert data["summary"]["total_warga_aktif"] == 2
+        assert data["summary"]["total_unit_published"] == 1
+        assert any(item["severity"] == "critical" for item in data["alerts"])
+        assert any(action["key"] == "surat-pending" for action in data["quick_actions"])
+
+    def test_empty_shape_tetap_konsisten(self, admin_desa):
+        data = DashboardService().get_overview(actor=admin_desa)["data"]
+        assert data["summary"]["surat_pending"] == 0
+        assert isinstance(data["alerts"], list)
+        assert isinstance(data["charts"]["surat_by_status"], list)
+        assert isinstance(data["health"]["content_flags"], list)
+
+
+@pytest.mark.django_db
+class TestDashboardQueues:
+    def test_surat_queue_filter_status_dan_aging(self, admin_desa, dashboard_seed):
+        data = DashboardService().get_surat_queue(
+            actor=admin_desa,
+            filters={"scope": "all", "status": "PENDING", "aging": "overdue"},
+        )
+        assert data["meta"]["total"] == 1
+        assert data["data"][0]["id"] == str(dashboard_seed["pending_old"].id)
+        assert data["data"][0]["aging_bucket"] == "overdue"
+
+    def test_pengaduan_queue_scope_week_memuat_item_yang_relevan(self, admin_desa, dashboard_seed):
+        data = DashboardService().get_pengaduan_queue(actor=admin_desa, filters={"scope": "week"})
+        ids = {item["id"] for item in data["data"]}
+        assert str(dashboard_seed["open_old"].id) in ids
+        assert str(dashboard_seed["triaged_warning"].id) in ids
+        assert data["meta"]["scope"] == "week"
+
+
 @pytest.mark.django_db
 class TestDashboardAnalytics:
+    def test_recent_activity_merge_dan_sorting_desc(self, admin_desa, dashboard_seed):
+        data = DashboardService().get_recent_activity(actor=admin_desa, limit=8)["data"]
+        timestamps = [item["created_at"] for item in data]
+        assert timestamps == sorted(timestamps, reverse=True)
+        assert {"surat", "pengaduan", "publikasi", "auth"} & {item["module"] for item in data}
 
-    def test_summary_metrics_dihitung_dengan_benar(self, users, seed_data):
-        """Memastikan widget ringkasan menampilkan angka yang tepat."""
-        service = DashboardService()
-        admin = users["admin_desa"]
-        
-        data = service.get_analitik_lengkap(actor=admin)
-        summary = data["summary"]
+    def test_surat_analytics_berisi_summary_trend_dan_missing_documents(self, admin_desa, dashboard_seed):
+        data = DashboardService().get_surat_analytics(actor=admin_desa, period_days=7)["data"]
+        assert data["summary"]["average_completion_hours"] > 0
+        assert data["summary"]["missing_document_total"] >= 1
+        assert any(item["label"] == "SKU" for item in data["by_jenis"])
+        assert isinstance(data["trend"], list)
 
-        # Ada 2 warga yang dibuat di fixture 'users'
-        assert summary["total_warga_aktif"] == 2 
-        
-        # Hanya ada 2 surat yang statusnya PENDING
-        assert summary["surat_pending"] == 2 
-        
-        # Ada 2 pengaduan yang masih OPEN/TRIAGED/IN_PROGRESS
-        assert summary["pengaduan_aktif"] == 2 
-        
-        # Ada 1 BUMDes yang is_published=True
-        assert summary["bumdes_published"] == 1 
+    def test_pengaduan_analytics_berisi_response_metrics(self, admin_desa, dashboard_seed):
+        data = DashboardService().get_pengaduan_analytics(actor=admin_desa, period_days=7)["data"]
+        assert data["summary"]["average_first_response_hours"] > 0
+        assert data["summary"]["average_resolved_hours"] > 0
+        assert data["oldest_active"][0]["id"] == str(dashboard_seed["open_old"].id)
 
-    def test_grafik_surat_dikelompokkan_berdasarkan_status(self, users, seed_data):
-        """Memastikan data untuk Donut Chart Surat valid."""
-        service = DashboardService()
-        admin = users["admin_desa"]
-        
-        data = service.get_analitik_lengkap(actor=admin)
-        surat_stats = data["charts"]["surat_by_status"]
 
-        # Mengubah list of dict menjadi dictionary mudah dibaca {'PENDING': 2, 'DONE': 1}
-        stats_dict = {item['status']: item['total'] for item in surat_stats}
-        
-        assert stats_dict["PENDING"] == 2
-        assert stats_dict["DONE"] == 1
+@pytest.mark.django_db
+class TestDashboardHealth:
+    def test_content_health_menghitung_draft_dan_unpublished(self, admin_desa, dashboard_seed):
+        data = DashboardService().get_content_health(actor=admin_desa)["data"]
+        assert data["summary"]["draft_publications"] == 1
+        assert data["summary"]["unpublished_units"] == 1
+        assert data["summary"]["unpublished_perangkat"] == 1
 
-    def test_grafik_pengaduan_dikelompokkan_berdasarkan_kategori(self, users, seed_data):
-        """Memastikan data untuk Bar Chart Pengaduan valid."""
-        service = DashboardService()
-        admin = users["admin_desa"]
-        
-        data = service.get_analitik_lengkap(actor=admin)
-        pengaduan_stats = data["charts"]["pengaduan_by_kategori"]
-
-        stats_dict = {item['kategori']: item['total'] for item in pengaduan_stats}
-        
-        assert stats_dict["Infrastruktur"] == 2
-        assert stats_dict["Pelayanan"] == 1
+    def test_master_health_menghitung_profil_dan_role_counts(self, admin_desa, dashboard_seed):
+        data = DashboardService().get_master_health(actor=admin_desa)["data"]
+        assert data["summary"]["dusun_total"] == 2
+        assert data["summary"]["perangkat_published"] == 1
+        assert data["summary"]["profile_completeness"]["score"] == 66
+        role_counts = {item["role"]: item["total"] for item in data["summary"]["role_counts"]}
+        assert role_counts["ADMIN"] == 1
+        assert role_counts["WARGA"] == 3
