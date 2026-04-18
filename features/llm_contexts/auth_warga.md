@@ -1,6 +1,6 @@
 # Feature Context: auth_warga
 
-Generated at: 2026-04-17T14:51:50
+Generated at: 2026-04-18T23:18:05
 Feature path: `D:\Kuliah\joki\radit\desa\backend\features\auth_warga`
 
 Dokumen ini berisi layer penting untuk konteks LLM.
@@ -14,8 +14,8 @@ Folder `tests`, `migrations`, `logs`, dan file non-konteks tidak disertakan.
 - `repositories.py`
 - `services.py`
 - `permissions.py`
-- `views.py`
-- `urls.py`
+- `schemas.py`
+- `api.py`
 
 ---
 
@@ -652,276 +652,69 @@ def can_create_warga_user(actor) -> bool:
 
 ---
 
-## File: `views.py`
+## File: `schemas.py`
 
 ```python
-# features/auth_warga/views.py
+# features/auth_warga/schemas.py
+from ninja import Schema
+from uuid import UUID
+from toolbox.security.sanitizers import SafePlainTextString
 
-import json
+class LoginIn(Schema):
+    nik: str
+    password: str
 
-from django.contrib.auth import login, logout
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET, require_POST
+class UserOut(Schema):
+    id: UUID
+    nik: str
+    nama_lengkap: str
+    role: str
+    is_active: bool
 
-from features.auth_warga.domain import (
-    AuthenticationFailedError,
-    DuplicateNIKError,
-    InactiveAccountError,
-    InvalidNIKError,
-    InvalidRoleError,
-)
-from features.auth_warga.services import (
-    AuthService,
-    PermissionDeniedError,
-    UserNotFoundError,
-)
-from toolbox.security.auth import is_active_user
-
-auth_service = AuthService()
-
-
-def _parse_json_body(request):
-    try:
-        return json.loads(request.body.decode("utf-8") or "{}")
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
-
-
-@require_POST
-def login_view(request):
-    payload = _parse_json_body(request)
-    if payload is None:
-        return JsonResponse({"detail": "Payload JSON tidak valid."}, status=400)
-
-    nik = payload.get("nik", "")
-    password = payload.get("password", "")
-
-    if not nik or not password:
-        return JsonResponse({"detail": "NIK dan kata sandi wajib diisi."}, status=400)
-
-    try:
-        result = auth_service.login_user(
-            request=request,
-            nik=nik,
-            password=password,
-        )
-    except InvalidNIKError as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
-    except InactiveAccountError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-    except AuthenticationFailedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=401)
-
-    login(request, result.user)
-    return JsonResponse(
-        {
-            "detail": result.message,
-            "data": {
-                "id": str(result.user.id),
-                "nik": result.user.nik,
-                "nama_lengkap": result.user.nama_lengkap,
-                "role": result.user.role,
-                "is_active": result.user.is_active,
-            },
-        },
-        status=200,
-    )
-
-
-@require_POST
-def logout_view(request):
-    logout(request)
-    return JsonResponse({"detail": "Logout berhasil."}, status=200)
-
-
-@require_GET
-def me_view(request):
-    user = getattr(request, "user", None)
-    if not is_active_user(user):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    return JsonResponse(
-        {
-            "data": {
-                "id": str(user.id),
-                "nik": user.nik,
-                "nama_lengkap": user.nama_lengkap,
-                "nomor_hp": user.nomor_hp,
-                "role": user.role,
-                "is_active": user.is_active,
-            }
-        },
-        status=200,
-    )
-
-
-@require_POST
-def create_warga_user_view(request):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    payload = _parse_json_body(request)
-    if payload is None:
-        return JsonResponse({"detail": "Payload JSON tidak valid."}, status=400)
-
-    try:
-        user = auth_service.create_warga_account(
-            actor=actor,
-            nik=payload.get("nik", ""),
-            password=payload.get("password", ""),
-            nama_lengkap=payload.get("nama_lengkap", ""),
-            nomor_hp=payload.get("nomor_hp"),
-            is_active=payload.get("is_active", True),
-        )
-    except (InvalidNIKError, DuplicateNIKError, InvalidRoleError) as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-    except ValueError as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
-
-    return JsonResponse(
-        {
-            "detail": "Akun warga berhasil dibuat.",
-            "data": {
-                "id": str(user.id),
-                "nik": user.nik,
-                "nama_lengkap": user.nama_lengkap,
-                "role": user.role,
-                "is_active": user.is_active,
-            },
-        },
-        status=201,
-    )
-
-
-@require_POST
-def create_admin_user_view(request):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    payload = _parse_json_body(request)
-    if payload is None:
-        return JsonResponse({"detail": "Payload JSON tidak valid."}, status=400)
-
-    try:
-        user = auth_service.create_admin_account(
-            actor=actor,
-            nik=payload.get("nik", ""),
-            password=payload.get("password", ""),
-            nama_lengkap=payload.get("nama_lengkap", ""),
-            role=payload.get("role", ""),
-            nomor_hp=payload.get("nomor_hp"),
-            is_active=payload.get("is_active", True),
-        )
-    except (InvalidNIKError, DuplicateNIKError, InvalidRoleError) as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-    except ValueError as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
-
-    return JsonResponse(
-        {
-            "detail": "Akun admin berhasil dibuat.",
-            "data": {
-                "id": str(user.id),
-                "nik": user.nik,
-                "nama_lengkap": user.nama_lengkap,
-                "role": user.role,
-                "is_active": user.is_active,
-            },
-        },
-        status=201,
-    )
-
-
-@require_POST
-def activate_user_view(request, user_id):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    try:
-        target_user = auth_service.activate_account(actor=actor, target_user_id=user_id)
-    except UserNotFoundError as exc:
-        return JsonResponse({"detail": str(exc)}, status=404)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-
-    return JsonResponse(
-        {
-            "detail": "Akun berhasil diaktifkan.",
-            "data": {
-                "id": str(target_user.id),
-                "nik": target_user.nik,
-                "nama_lengkap": target_user.nama_lengkap,
-                "role": target_user.role,
-                "is_active": target_user.is_active,
-            },
-        },
-        status=200,
-    )
-
-
-@require_POST
-def deactivate_user_view(request, user_id):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    try:
-        target_user = auth_service.deactivate_account(actor=actor, target_user_id=user_id)
-    except UserNotFoundError as exc:
-        return JsonResponse({"detail": str(exc)}, status=404)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-
-    return JsonResponse(
-        {
-            "detail": "Akun berhasil dinonaktifkan.",
-            "data": {
-                "id": str(target_user.id),
-                "nik": target_user.nik,
-                "nama_lengkap": target_user.nama_lengkap,
-                "role": target_user.role,
-                "is_active": target_user.is_active,
-            },
-        },
-        status=200,
-    )
+class CreateWargaIn(Schema):
+    nik: str
+    nama_lengkap: SafePlainTextString
+    password: str
+    nomor_hp: str = None
 ```
 
 ---
 
-## File: `urls.py`
+## File: `api.py`
 
 ```python
-# features/auth_warga/urls.py
+# features/auth_warga/api.py
+from django.contrib.auth import login, logout
+from ninja import Router
+from .schemas import LoginIn, UserOut, CreateWargaIn
+from .services import AuthService
+from toolbox.api.auth import AuthActiveUser, AuthAdminOnly
 
-from django.urls import path
+router = Router(tags=["Autentikasi & Akun"])
+auth_service = AuthService()
 
-from features.auth_warga.views import (
-    activate_user_view,
-    create_admin_user_view,
-    create_warga_user_view,
-    deactivate_user_view,
-    login_view,
-    logout_view,
-    me_view,
-)
+@router.post("/login", response={200: UserOut})
+def login_api(request, payload: LoginIn):
+    result = auth_service.login_user(request, payload.nik, payload.password)
+    login(request, result.user)
+    return result.user
 
-urlpatterns = [
-    path("login/", login_view, name="auth-login"),
-    path("logout/", logout_view, name="auth-logout"),
-    path("me/", me_view, name="auth-me"),
-    path("users/warga/create/", create_warga_user_view, name="auth-create-warga-user"),
-    path("users/admin/create/", create_admin_user_view, name="auth-create-admin-user"),
-    path("users/<uuid:user_id>/activate/", activate_user_view, name="auth-activate-user"),
-    path("users/<uuid:user_id>/deactivate/", deactivate_user_view, name="auth-deactivate-user"),
-]
+@router.post("/logout", auth=AuthActiveUser)
+def logout_api(request):
+    logout(request)
+    return {"detail": "Logout berhasil."}
+
+@router.get("/me", auth=AuthActiveUser, response=UserOut)
+def me_api(request):
+    return request.user
+
+@router.post("/users/warga/create", auth=AuthAdminOnly, response={201: UserOut})
+def create_warga_api(request, payload: CreateWargaIn):
+    user = auth_service.create_warga_account(
+        actor=request.user,
+        **payload.dict()
+    )
+    return 201, user
 ```
 
 ---

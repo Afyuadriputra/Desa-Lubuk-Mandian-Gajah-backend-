@@ -1,6 +1,6 @@
 # Feature Context: layanan_administrasi
 
-Generated at: 2026-04-17T14:51:50
+Generated at: 2026-04-18T23:18:05
 Feature path: `D:\Kuliah\joki\radit\desa\backend\features\layanan_administrasi`
 
 Dokumen ini berisi layer penting untuk konteks LLM.
@@ -14,8 +14,8 @@ Folder `tests`, `migrations`, `logs`, dan file non-konteks tidak disertakan.
 - `repositories.py`
 - `services.py`
 - `permissions.py`
-- `views.py`
-- `urls.py`
+- `schemas.py`
+- `api.py`
 
 ---
 
@@ -457,185 +457,71 @@ def can_update_surat_status(actor) -> bool:
 
 ---
 
-## File: `views.py`
+## File: `schemas.py`
 
 ```python
-# features/layanan_administrasi/views.py
+# features/layanan_administrasi/schemas.py
+from ninja import Schema
+from datetime import datetime
+from uuid import UUID
+from typing import List
 
-import json
+class SuratIn(Schema):
+    jenis_surat: str
+    keperluan: str
 
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET, require_POST
+class SuratOut(Schema):
+    id: UUID
+    jenis_surat: str
+    status: str
+    created_at: datetime
+    pdf_url: str = None
 
-from features.layanan_administrasi.domain import LayananSuratError
-from features.layanan_administrasi.services import (
-    LayananSuratNotFoundError,
-    PermissionDeniedError,
-    SuratService,
-)
-from toolbox.security.auth import is_active_user
-
-surat_service = SuratService()
-
-
-def _parse_json_body(request):
-    try:
-        return json.loads(request.body.decode("utf-8") or "{}")
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
-
-
-@require_POST
-def ajukan_surat_view(request):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    payload = _parse_json_body(request)
-    if payload is None:
-        return JsonResponse({"detail": "Payload JSON tidak valid."}, status=400)
-
-    try:
-        surat = surat_service.ajukan_surat(
-            actor=actor,
-            jenis_surat=payload.get("jenis_surat", ""),
-            keperluan=payload.get("keperluan", "")
-        )
-    except LayananSuratError as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-
-    return JsonResponse(
-        {
-            "detail": "Pengajuan surat berhasil.",
-            "data": {
-                "id": str(surat.id),
-                "jenis_surat": surat.jenis_surat,
-                "status": surat.status,
-                "created_at": surat.created_at.isoformat(),
-            }
-        },
-        status=201
-    )
-
-
-@require_GET
-def list_surat_view(request):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    qs = surat_service.list_surat(actor)
-    data = [
-        {
-            "id": str(s.id),
-            "jenis_surat": s.jenis_surat,
-            "status": s.status,
-            "pemohon": s.pemohon.nama_lengkap,
-            "created_at": s.created_at.isoformat(),
-        } for s in qs
-    ]
-
-    return JsonResponse({"data": data}, status=200)
-
-
-@require_GET
-def detail_surat_view(request, surat_id):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    try:
-        surat = surat_service.get_surat_detail(actor, surat_id)
-    except LayananSuratNotFoundError as exc:
-        return JsonResponse({"detail": str(exc)}, status=404)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-
-    return JsonResponse(
-        {
-            "data": {
-                "id": str(surat.id),
-                "jenis_surat": surat.jenis_surat,
-                "keperluan": surat.keperluan,
-                "status": surat.status,
-                "nomor_surat": surat.nomor_surat,
-                "rejection_reason": surat.rejection_reason,
-                "pdf_url": surat.pdf_file.url if surat.pdf_file else None,
-                "pemohon": {
-                    "id": str(surat.pemohon.id),
-                    "nama_lengkap": surat.pemohon.nama_lengkap,
-                    "nik": surat.pemohon.nik,
-                },
-                "created_at": surat.created_at.isoformat(),
-                "updated_at": surat.updated_at.isoformat(),
-            }
-        },
-        status=200
-    )
-
-
-@require_POST
-def proses_surat_view(request, surat_id):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    payload = _parse_json_body(request)
-    if payload is None:
-        return JsonResponse({"detail": "Payload JSON tidak valid."}, status=400)
-
-    try:
-        surat = surat_service.proses_surat(
-            actor=actor,
-            surat_id=surat_id,
-            new_status=payload.get("status", ""),
-            notes=payload.get("notes"),
-            nomor_surat=payload.get("nomor_surat"),
-            rejection_reason=payload.get("rejection_reason")
-        )
-    except LayananSuratError as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-    except LayananSuratNotFoundError as exc:
-        return JsonResponse({"detail": str(exc)}, status=404)
-
-    return JsonResponse(
-        {
-            "detail": "Status surat berhasil diperbarui.",
-            "data": {
-                "id": str(surat.id),
-                "status": surat.status,
-            }
-        },
-        status=200
-    )
+class ProsesSuratIn(Schema):
+    status: str
+    notes: str = None
+    nomor_surat: str = None
+    rejection_reason: str = None
 ```
 
 ---
 
-## File: `urls.py`
+## File: `api.py`
 
 ```python
-# features/layanan_administrasi/urls.py
+from ninja import Router
+from .schemas import SuratIn, SuratOut, ProsesSuratIn
+from .services import SuratService
+from toolbox.api.auth import AuthActiveUser, AuthAdminOnly
 
-from django.urls import path
+router = Router(tags=["Layanan Administrasi"])
+surat_service = SuratService()
 
-from features.layanan_administrasi.views import (
-    ajukan_surat_view,
-    detail_surat_view,
-    list_surat_view,
-    proses_surat_view,
-)
+@router.post("/surat/ajukan", auth=AuthActiveUser, response={201: SuratOut})
+def ajukan_surat_api(request, payload: SuratIn):
+    surat = surat_service.ajukan_surat(
+        actor=request.user, 
+        **payload.dict(exclude_unset=True)
+    )
+    return 201, surat
 
-urlpatterns = [
-    path("surat/", list_surat_view, name="surat-list"),
-    path("surat/ajukan/", ajukan_surat_view, name="surat-ajukan"),
-    path("surat/<uuid:surat_id>/", detail_surat_view, name="surat-detail"),
-    path("surat/<uuid:surat_id>/proses/", proses_surat_view, name="surat-proses"),
-]
+@router.get("/surat", auth=AuthActiveUser, response=list[SuratOut])
+def list_surat_api(request):
+    return surat_service.list_surat(request.user)
+
+@router.post("/surat/{surat_id}/proses", auth=AuthAdminOnly, response=SuratOut)
+def proses_surat_api(request, surat_id: str, payload: ProsesSuratIn):
+    # Kita petakan secara manual agar nama parameter di API 
+    # sinkron dengan nama parameter di Service Layer Anda.
+    surat = surat_service.proses_surat(
+        actor=request.user,
+        surat_id=surat_id,
+        new_status=payload.status,        # Map 'status' ke 'new_status'
+        notes=payload.notes,               # Nama sudah sama
+        nomor_surat=payload.nomor_surat,
+        rejection_reason=payload.rejection_reason
+    )
+    return surat
 ```
 
 ---

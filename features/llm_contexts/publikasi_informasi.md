@@ -1,6 +1,6 @@
 # Feature Context: publikasi_informasi
 
-Generated at: 2026-04-17T14:51:50
+Generated at: 2026-04-18T23:18:05
 Feature path: `D:\Kuliah\joki\radit\desa\backend\features\publikasi_informasi`
 
 Dokumen ini berisi layer penting untuk konteks LLM.
@@ -14,8 +14,8 @@ Folder `tests`, `migrations`, `logs`, dan file non-konteks tidak disertakan.
 - `repositories.py`
 - `services.py`
 - `permissions.py`
-- `views.py`
-- `urls.py`
+- `schemas.py`
+- `api.py`
 
 ---
 
@@ -164,18 +164,17 @@ class PublikasiRepository:
 
 from django.utils import timezone
 from features.publikasi_informasi.domain import (
-    PublikasiError, validate_publikasi_input, STATUS_PUBLISHED, STATUS_DRAFT
+    PublikasiError, validate_publikasi_input, STATUS_PUBLISHED
 )
 from features.publikasi_informasi.permissions import can_create_or_edit_publikasi
 from features.publikasi_informasi.repositories import PublikasiRepository
 from toolbox.logging import audit_event
-from toolbox.security.sanitizers import sanitize_rich_text_content
+# Import sanitize_rich_text_content DIHAPUS
 
 class PublikasiAccessError(Exception):
     pass
 
 class PublikasiService:
-    # Dependency Inversion: Repository diinjeksi
     def __init__(self, repo: PublikasiRepository = None):
         self.repo = repo or PublikasiRepository()
 
@@ -185,14 +184,14 @@ class PublikasiService:
 
         validate_publikasi_input(judul, konten_html, jenis, status)
 
-        # SANITASI HTML: Mencegah XSS Attack dari input WYSIWYG Editor Frontend
-        clean_html = sanitize_rich_text_content(konten_html)
+        # KISS: Tidak perlu lagi memanggil sanitize_rich_text_content(konten_html) manual!
+        # Variabel 'konten_html' di sini sudah dijamin aman oleh Pydantic.
 
         published_at = timezone.now() if status == STATUS_PUBLISHED else None
 
         publikasi = self.repo.create({
-            "judul": judul.strip(),
-            "konten_html": clean_html,
+            "judul": judul, # Sudah otomatis di .strip() oleh SafePlainTextString
+            "konten_html": konten_html,
             "jenis": jenis,
             "status": status,
             "penulis_id": actor.id,
@@ -250,87 +249,101 @@ def can_view_publikasi_publik(actor) -> bool:
 
 ---
 
-## File: `views.py`
+## File: `schemas.py`
 
 ```python
-# features/publikasi_informasi/views.py
+# features/publikasi_informasi/schemas.py
 
-import json
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET, require_POST
-from features.publikasi_informasi.services import PublikasiService, PublikasiError, PublikasiAccessError
-from toolbox.security.auth import is_active_user
+from datetime import datetime
+from typing import Optional
+from ninja import Schema, Field
+from toolbox.security.sanitizers import SafeHTMLString, SafePlainTextString
 
-publikasi_service = PublikasiService()
+# --- INPUT SCHEMAS ---
 
-@require_GET
-def list_publikasi_publik_view(request):
-    jenis = request.GET.get("jenis") # Opsional: ?jenis=BERITA
-    qs = publikasi_service.get_publikasi_publik(jenis)
-    data = [{
-        "judul": p.judul, 
-        "slug": p.slug, 
-        "jenis": p.jenis,
-        "penulis": p.penulis.nama_lengkap if p.penulis else "Admin",
-        "published_at": p.published_at.isoformat() if p.published_at else None
-    } for p in qs]
-    return JsonResponse({"data": data}, status=200)
+class BuatPublikasiIn(Schema):
+    """
+    DRY: SafePlainTextString dan SafeHTMLString otomatis membersihkan 
+    input dari potensi XSS Attack saat request masuk.
+    """
+    judul: SafePlainTextString
+    konten_html: SafeHTMLString
+    jenis: str = "BERITA"
+    status: str = "DRAFT"
 
-@require_GET
-def detail_publikasi_view(request, slug):
-    try:
-        p = publikasi_service.get_detail_publik(slug)
-        return JsonResponse({
-            "data": {
-                "judul": p.judul,
-                "konten_html": p.konten_html, # Aman, sudah disanitasi saat disave
-                "jenis": p.jenis,
-                "penulis": p.penulis.nama_lengkap if p.penulis else "Admin",
-                "published_at": p.published_at.isoformat() if p.published_at else None
-            }
-        }, status=200)
-    except PublikasiError as e:
-        return JsonResponse({"detail": str(e)}, status=404)
+class UbahStatusIn(Schema):
+    status: str
 
-@require_POST
-def buat_publikasi_admin_view(request):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor): 
-        return JsonResponse({"detail": "Unauthorized"}, status=401)
-        
-    data = json.loads(request.body.decode("utf-8") or "{}")
-    try:
-        publikasi = publikasi_service.buat_publikasi(
-            actor=actor,
-            judul=data.get("judul"),
-            konten_html=data.get("konten_html"),
-            jenis=data.get("jenis", "BERITA"),
-            status=data.get("status", "DRAFT")
-        )
-        return JsonResponse({"detail": "Publikasi berhasil dibuat", "slug": publikasi.slug}, status=201)
-    except (PublikasiError, PublikasiAccessError) as e:
-        return JsonResponse({"detail": str(e)}, status=400)
+
+# --- OUTPUT SCHEMAS ---
+
+class PublikasiListOut(Schema):
+    """
+    YAGNI: Hanya mengirim data meta untuk card/daftar berita.
+    Tidak perlu mengirim 'konten_html' di sini untuk menghemat bandwidth.
+    """
+    judul: str
+    slug: str
+    jenis: str
+    penulis_nama: str = Field("Admin", alias="penulis.nama_lengkap")
+    published_at: Optional[datetime] = None
+
+class PublikasiDetailOut(Schema):
+    """Schema lengkap untuk halaman baca artikel."""
+    judul: str
+    slug: str
+    konten_html: str
+    jenis: str
+    status: str
+    penulis_nama: str = Field("Admin", alias="penulis.nama_lengkap")
+    published_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
 ```
 
 ---
 
-## File: `urls.py`
+## File: `api.py`
 
 ```python
-# features/publikasi_informasi/urls.py
+# features/publikasi_informasi/api.py
+from typing import List, Optional
+from ninja import Router
 
-from django.urls import path
-from features.publikasi_informasi.views import (
-    list_publikasi_publik_view, 
-    detail_publikasi_view, 
-    buat_publikasi_admin_view
-)
+from .schemas import BuatPublikasiIn, PublikasiListOut, PublikasiDetailOut, UbahStatusIn
+from .services import PublikasiService
+from toolbox.api.auth import AuthAdminOnly
 
-urlpatterns = [
-    path("publikasi/", list_publikasi_publik_view, name="publikasi-list-publik"),
-    path("publikasi/admin/buat/", buat_publikasi_admin_view, name="publikasi-admin-buat"),
-    path("publikasi/<slug:slug>/", detail_publikasi_view, name="publikasi-detail"),
-]
+router = Router(tags=["Publikasi Informasi (CMS)"])
+publikasi_service = PublikasiService()
+
+@router.get("/publik", auth=None, response=list[PublikasiListOut])
+def list_publikasi_publik_api(request, jenis: Optional[str] = None):
+    return publikasi_service.get_publikasi_publik(jenis=jenis)
+
+@router.get("/publik/{slug}", auth=None, response=PublikasiDetailOut)
+def detail_publikasi_api(request, slug: str):
+    return publikasi_service.get_detail_publik(slug)
+
+@router.post("/admin/buat", auth=AuthAdminOnly, response={201: PublikasiDetailOut})
+def buat_publikasi_admin_api(request, payload: BuatPublikasiIn):
+    publikasi = publikasi_service.buat_publikasi(
+        actor=request.user,
+        judul=payload.judul,
+        konten_html=payload.konten_html,
+        jenis=payload.jenis,
+        status=payload.status
+    )
+    return 201, publikasi
+
+@router.put("/admin/{slug}/status", auth=AuthAdminOnly, response=PublikasiDetailOut)
+def ubah_status_publikasi_api(request, slug: str, payload: UbahStatusIn):
+    updated_publikasi = publikasi_service.ubah_status(
+        actor=request.user,
+        slug=slug,
+        new_status=payload.status
+    )
+    return updated_publikasi
 ```
 
 ---

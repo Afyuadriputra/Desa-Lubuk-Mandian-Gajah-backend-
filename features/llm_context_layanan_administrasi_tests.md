@@ -1,0 +1,1578 @@
+# LLM Context: Tests untuk fitur `layanan_administrasi`
+
+Dokumen ini berisi kumpulan kode dari direktori `layanan_administrasi/tests` untuk keperluan konteks LLM.
+
+---
+## File: `layanan_administrasi/tests/base_test.py`
+
+```python
+# features/layanan_administrasi/tests/base_test.py
+
+import pytest
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+
+@pytest.fixture
+def warga():
+    return User.objects.create_user(
+        nik="2222222222222222",
+        password="password123",
+        nama_lengkap="Warga",
+        role="WARGA",
+    )
+
+
+@pytest.fixture
+def admin():
+    return User.objects.create_user(
+        nik="1111111111111111",
+        password="password123",
+        nama_lengkap="Admin",
+        role="ADMIN",
+        is_staff=True,
+    )
+```
+
+---
+## File: `layanan_administrasi/tests/conftest.py`
+
+```python
+import pytest
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+# Timpa (override) admin_user bawaan pytest-django
+@pytest.fixture
+def admin_user(db):
+    return User.objects.create_superuser(
+        nik="9999999999999999",
+        password="password123",
+        nama_lengkap="Super Admin Utama",
+        role="SUPERADMIN"
+    )
+
+# Daftarkan warga_user
+@pytest.fixture
+def warga_user(db):
+    return User.objects.create_user(
+        nik="1234123412341234",
+        password="password123",
+        nama_lengkap="Warga Biasa",
+        role="WARGA"
+    )
+```
+
+---
+## File: `layanan_administrasi/tests/generate_tests_layanan_context.py`
+
+```python
+import os
+
+def generate_context():
+    # Nama file output
+    output_file = "tests_layanan_context.txt"
+    
+    # Daftar abaikan
+    ignore_dirs = {'__pycache__', 'logs'}
+    ignore_files = {output_file, 'generate_tests_layanan_context.py'}
+    
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    with open(output_file, 'w', encoding='utf-8') as f_out:
+        f_out.write("CONTEXT: UNIT & INTEGRATION TESTS - LAYANAN ADMINISTRASI\n")
+        f_out.write(f"Location: {current_dir}\n")
+        f_out.write("="*70 + "\n\n")
+
+        # Mengambil daftar file secara urut agar rapi
+        files = [f for f in os.listdir(current_dir) if os.path.isfile(os.path.join(current_dir, f))]
+        files.sort()
+
+        for file in files:
+            if file in ignore_files:
+                continue
+            
+            file_path = os.path.join(current_dir, file)
+            
+            # Header untuk setiap file
+            f_out.write(f" FILE: {file} ".center(70, "#") + "\n")
+            
+            try:
+                # Cek ukuran file
+                if os.path.getsize(file_path) == 0:
+                    f_out.write("\n[ INFO: File ini kosong ]\n")
+                else:
+                    with open(file_path, 'r', encoding='utf-8') as f_in:
+                        content = f_in.read()
+                        f_out.write("\n" + content.strip() + "\n")
+            except Exception as e:
+                f_out.write(f"\n[ Error membaca file: {e} ]\n")
+            
+            f_out.write("\n" + "="*70 + "\n\n")
+
+    print(f"✅ Berhasil! File konteks dibuat: {output_file}")
+
+if __name__ == "__main__":
+    generate_context()
+```
+
+---
+## File: `layanan_administrasi/tests/tests_layanan_context.txt`
+
+```text
+CONTEXT: UNIT & INTEGRATION TESTS - LAYANAN ADMINISTRASI
+Location: D:\Kuliah\joki\radit\desa\backend\features\layanan_administrasi\tests
+======================================================================
+
+######################### FILE: __init__.py ##########################
+
+[ INFO: File ini kosong ]
+
+======================================================================
+
+######################### FILE: base_test.py #########################
+
+# features/layanan_administrasi/tests/base_test.py
+
+import pytest
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+
+@pytest.fixture
+def warga():
+    return User.objects.create_user(
+        nik="2222222222222222",
+        password="password123",
+        nama_lengkap="Warga",
+        role="WARGA",
+    )
+
+
+@pytest.fixture
+def admin():
+    return User.objects.create_user(
+        nik="1111111111111111",
+        password="password123",
+        nama_lengkap="Admin",
+        role="ADMIN",
+        is_staff=True,
+    )
+
+======================================================================
+
+######################### FILE: conftest.py ##########################
+
+import pytest
+
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_call(item):
+    doc = item.function.__doc__
+    class_name = item.cls.__name__ if item.cls else ""
+
+    if doc:
+        print(f"\n [{class_name}] {doc.strip()}")
+    yield
+
+======================================================================
+
+######################## FILE: test_domain.py ########################
+
+import pytest
+
+from features.layanan_administrasi.domain import (
+    validate_jenis_surat,
+    validate_keperluan,
+    validate_status_transition,
+    validate_rejection,
+    InvalidJenisSuratError,
+    InvalidKeperluanError,
+    InvalidStatusTransitionError,
+    RejectionReasonRequiredError,
+    JENIS_SKU,
+    STATUS_PENDING,
+    STATUS_VERIFIED,
+    STATUS_DONE,
+    STATUS_REJECTED,
+)
+
+
+class TestJenisSuratValidation:
+    def test_should_accept_valid_jenis_surat(self):
+        """Validasi jenis surat yang benar harus lolos"""
+        validate_jenis_surat(JENIS_SKU)
+
+    def test_should_reject_invalid_jenis_surat(self):
+        """Harus error jika jenis surat tidak valid"""
+        with pytest.raises(InvalidJenisSuratError):
+            validate_jenis_surat("SALAH")
+
+
+class TestKeperluanValidation:
+    def test_should_reject_empty_keperluan(self):
+        """Harus error jika keperluan kosong"""
+        with pytest.raises(InvalidKeperluanError):
+            validate_keperluan("")
+
+    def test_should_reject_short_keperluan(self):
+        """Harus error jika keperluan terlalu pendek"""
+        with pytest.raises(InvalidKeperluanError):
+            validate_keperluan("pendek")
+
+    def test_should_accept_valid_keperluan(self):
+        """Keperluan valid harus lolos"""
+        validate_keperluan("Mengurus keperluan administrasi desa")
+
+
+class TestStatusTransition:
+    def test_should_allow_valid_transition(self):
+        """Transisi status valid harus lolos"""
+        validate_status_transition(STATUS_PENDING, STATUS_VERIFIED)
+
+    def test_should_reject_invalid_transition(self):
+        """Transisi status tidak valid harus error"""
+        with pytest.raises(InvalidStatusTransitionError):
+            validate_status_transition(STATUS_DONE, STATUS_VERIFIED)
+
+
+class TestRejectionValidation:
+    def test_should_require_reason_when_rejected(self):
+        """Status REJECTED wajib memiliki alasan"""
+        with pytest.raises(RejectionReasonRequiredError):
+            validate_rejection(STATUS_REJECTED, "")
+
+    def test_should_pass_when_reason_provided(self):
+        """Status REJECTED dengan alasan harus lolos"""
+        validate_rejection(STATUS_REJECTED, "Dokumen tidak lengkap")
+
+======================================================================
+
+##################### FILE: test_integration.py ######################
+
+import json
+import pytest
+from django.contrib.auth import get_user_model
+from django.urls import reverse
+
+User = get_user_model()
+
+
+@pytest.mark.django_db
+class TestSuratEndToEnd:
+
+    def test_should_complete_full_flow_from_submit_to_done(self, client):
+        """End-to-end: warga submit → admin proses → DONE"""
+
+        # 🔹 SETUP USERS
+        admin = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role="ADMIN",
+            is_staff=True,
+        )
+
+        warga = User.objects.create_user(
+            nik="2222222222222222",
+            password="password123",
+            nama_lengkap="Warga",
+            role="WARGA",
+        )
+
+        # =========================
+        #  STEP 1: SUBMIT SURAT
+        # =========================
+        client.force_login(warga)
+
+        payload_submit = {
+            "jenis_surat": "SKU",
+            "keperluan": "Pengajuan surat usaha untuk keperluan administrasi",
+        }
+
+        response = client.post(
+            reverse("surat-ajukan"),
+            data=json.dumps(payload_submit),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201
+        surat_id = response.json()["data"]["id"]
+
+        # =========================
+        #  STEP 2: ADMIN PROSES
+        # =========================
+        client.force_login(admin)
+
+        def proses(status):
+            return client.post(
+                reverse("surat-proses", kwargs={"surat_id": surat_id}),
+                data=json.dumps({"status": status}),
+                content_type="application/json",
+            )
+
+        # VERIFIED
+        response = proses("VERIFIED")
+        assert response.status_code == 200
+
+        # PROCESSED
+        response = proses("PROCESSED")
+        assert response.status_code == 200
+
+        # DONE
+        response = proses("DONE")
+        assert response.status_code == 200
+
+        # =========================
+        #  ASSERT FINAL STATE
+        # =========================
+        assert response.json()["data"]["status"] == "DONE"
+
+======================================================================
+
+##################### FILE: test_repositories.py #####################
+
+# features/layanan_administrasi/tests/test_repositories.py
+
+import pytest
+from django.contrib.auth import get_user_model
+
+from features.layanan_administrasi.repositories import SuratRepository
+from features.layanan_administrasi.models import LayananSurat
+
+User = get_user_model()
+
+
+@pytest.mark.django_db
+class TestCreateSuratRepository:
+    def test_should_create_surat_and_initial_history(self):
+        """Harus membuat surat + 1 histori awal (PENDING)"""
+
+        user = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Warga",
+            role="WARGA",
+        )
+
+        repo = SuratRepository()
+
+        surat = repo.create_surat(
+            pemohon_id=user.id,
+            jenis_surat="SKU",
+            keperluan="Untuk keperluan usaha toko"
+        )
+
+        assert surat is not None
+        assert surat.status == "PENDING"
+        assert surat.pemohon_id == user.id
+
+        #  cek histori
+        histories = surat.histori_status.all()
+        assert histories.count() == 1
+
+        history = histories.first()
+        assert history.status_from is None
+        assert history.status_to == "PENDING"
+        assert history.changed_by_id == user.id
+
+
+@pytest.mark.django_db
+class TestUpdateStatusRepository:
+    def test_should_update_status_and_create_history(self):
+        """Setiap update status harus membuat histori baru"""
+
+        user = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Warga",
+            role="WARGA",
+        )
+
+        repo = SuratRepository()
+
+        surat = repo.create_surat(
+            pemohon_id=user.id,
+            jenis_surat="SKU",
+            keperluan="Untuk usaha"
+        )
+
+        updated = repo.update_status(
+            surat=surat,
+            new_status="VERIFIED",
+            actor_id=user.id
+        )
+
+        assert updated.status == "VERIFIED"
+
+        #  histori harus nambah
+        assert updated.histori_status.count() == 2
+
+
+    def test_should_store_nomor_surat_when_provided(self):
+        """Nomor surat harus tersimpan jika diberikan"""
+
+        user = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role="ADMIN",
+        )
+
+        repo = SuratRepository()
+
+        surat = repo.create_surat(
+            pemohon_id=user.id,
+            jenis_surat="SKU",
+            keperluan="Untuk usaha"
+        )
+
+        updated = repo.update_status(
+            surat=surat,
+            new_status="PROCESSED",
+            actor_id=user.id,
+            nomor_surat="470/SKU/IV/2026/ABCD"
+        )
+
+        assert updated.nomor_surat == "470/SKU/IV/2026/ABCD"
+
+
+    def test_should_store_rejection_reason_when_rejected(self):
+        """Rejection reason harus tersimpan saat status REJECTED"""
+
+        user = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role="ADMIN",
+        )
+
+        repo = SuratRepository()
+
+        surat = repo.create_surat(
+            pemohon_id=user.id,
+            jenis_surat="SKU",
+            keperluan="Untuk usaha"
+        )
+
+        updated = repo.update_status(
+            surat=surat,
+            new_status="REJECTED",
+            actor_id=user.id,
+            rejection_reason="Dokumen tidak lengkap"
+        )
+
+        assert updated.rejection_reason == "Dokumen tidak lengkap"
+
+
+    def test_should_not_set_rejection_reason_if_not_rejected(self):
+        """Rejection reason tidak boleh tersimpan jika bukan REJECTED"""
+
+        user = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role="ADMIN",
+        )
+
+        repo = SuratRepository()
+
+        surat = repo.create_surat(
+            pemohon_id=user.id,
+            jenis_surat="SKU",
+            keperluan="Untuk usaha"
+        )
+
+        updated = repo.update_status(
+            surat=surat,
+            new_status="VERIFIED",
+            actor_id=user.id,
+            rejection_reason="Tidak valid"
+        )
+
+        assert updated.rejection_reason is None
+
+======================================================================
+
+####################### FILE: test_services.py #######################
+
+import pytest
+from unittest.mock import patch
+from django.contrib.auth import get_user_model
+
+from features.layanan_administrasi.services import SuratService
+from features.layanan_administrasi.domain import (
+    JENIS_SKU,
+    STATUS_VERIFIED,
+    STATUS_PROCESSED,
+    STATUS_DONE,
+    STATUS_REJECTED,
+    InvalidStatusTransitionError,
+    RejectionReasonRequiredError,
+)
+
+User = get_user_model()
+
+
+# =========================
+# 🔹 BASE FACTORY
+# =========================
+@pytest.fixture
+def user_factory():
+    counter = 1
+
+    def create(role="WARGA", is_staff=False):
+        nonlocal counter
+
+        nik = str(counter).zfill(16)
+        counter += 1
+
+        return User.objects.create_user(
+            nik=nik,
+            password="pass",
+            nama_lengkap=f"User {nik}",
+            role=role,
+            is_staff=is_staff,
+        )
+
+    return create
+
+
+@pytest.fixture
+def surat_setup(user_factory):
+    warga = user_factory(role="WARGA")
+    admin = user_factory(role="ADMIN", is_staff=True)
+
+    service = SuratService()
+    surat = service.repository.create_surat(
+        warga.id, JENIS_SKU, "Keperluan panjang sekali"
+    )
+
+    return warga, admin, service, surat
+
+
+# =========================
+# 🔹 PROSES SURAT (ADVANCED)
+# =========================
+@pytest.mark.django_db
+class TestProsesSuratAdvanced:
+
+    def test_should_follow_valid_state_machine_flow(self, surat_setup):
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+        service.proses_surat(admin, surat.id, STATUS_PROCESSED)
+        updated = service.proses_surat(admin, surat.id, STATUS_DONE)
+
+        assert updated.status == STATUS_DONE
+
+    def test_should_reject_invalid_transition(self, surat_setup):
+        _, admin, service, surat = surat_setup
+
+        with pytest.raises(InvalidStatusTransitionError):
+            service.proses_surat(admin, surat.id, STATUS_DONE)
+
+    def test_should_require_rejection_reason(self, surat_setup):
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+
+        with pytest.raises(RejectionReasonRequiredError):
+            service.proses_surat(admin, surat.id, STATUS_REJECTED)
+
+    def test_should_allow_rejection_with_reason(self, surat_setup):
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+
+        updated = service.proses_surat(
+            admin,
+            surat.id,
+            STATUS_REJECTED,
+            rejection_reason="Tidak valid",
+        )
+
+        assert updated.status == STATUS_REJECTED
+
+
+# =========================
+# 🔹 NOMOR SURAT
+# =========================
+@pytest.mark.django_db
+class TestNomorSurat:
+
+    @patch("features.layanan_administrasi.services.generate_nomor_surat")
+    def test_should_generate_nomor_surat_if_not_provided(self, mock_nomor, surat_setup):
+        mock_nomor.return_value = "AUTO-NOMOR"
+
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+        service.proses_surat(admin, surat.id, STATUS_PROCESSED)
+        updated = service.proses_surat(admin, surat.id, STATUS_DONE)
+
+        assert updated.nomor_surat == "AUTO-NOMOR"
+
+    def test_should_not_override_manual_nomor(self, surat_setup):
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+        service.proses_surat(admin, surat.id, STATUS_PROCESSED)
+
+        updated = service.proses_surat(
+            admin,
+            surat.id,
+            STATUS_DONE,
+            nomor_surat="MANUAL-123",
+        )
+
+        assert updated.nomor_surat == "MANUAL-123"
+
+
+# =========================
+# 🔹 PDF GENERATION
+# =========================
+@pytest.mark.django_db
+class TestPDFGeneration:
+
+    @patch("features.layanan_administrasi.services.generate_pdf_from_html")
+    @patch("features.layanan_administrasi.services.render_surat_html")
+    def test_should_attach_pdf_when_done(self, mock_render, mock_pdf, surat_setup):
+        mock_render.return_value = "<html></html>"
+        mock_pdf.return_value = b"PDF"
+
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+        service.proses_surat(admin, surat.id, STATUS_PROCESSED)
+        updated = service.proses_surat(admin, surat.id, STATUS_DONE)
+
+        assert updated.pdf_file is not None
+
+    @patch("features.layanan_administrasi.services.generate_pdf_from_html")
+    @patch("features.layanan_administrasi.services.render_surat_html")
+    def test_should_not_crash_when_pdf_fails(self, mock_render, mock_pdf, surat_setup):
+        mock_render.return_value = "<html></html>"
+        mock_pdf.side_effect = Exception("PDF ERROR")
+
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+        service.proses_surat(admin, surat.id, STATUS_PROCESSED)
+
+        updated = service.proses_surat(admin, surat.id, STATUS_DONE)
+
+        assert updated.status == STATUS_DONE
+
+
+# =========================
+# 🔹 AUDIT LOG
+# =========================
+@pytest.mark.django_db
+class TestAuditLogging:
+
+    @patch("features.layanan_administrasi.services.audit_event")
+    def test_should_log_event_when_submit(self, mock_audit, user_factory):
+
+        warga = user_factory(role="WARGA")
+
+        service = SuratService()
+        surat = service.ajukan_surat(
+            actor=warga,
+            jenis_surat="SKU",
+            keperluan="Untuk usaha",
+        )
+
+        assert surat is not None
+        mock_audit.assert_called_once()
+
+
+# =========================
+# 🔹 DATA CONSISTENCY
+# =========================
+@pytest.mark.django_db
+class TestDataConsistency:
+
+    def test_status_should_match_latest_history(self, user_factory):
+
+        warga = user_factory(role="WARGA")
+        admin = user_factory(role="ADMIN", is_staff=True)
+
+        service = SuratService()
+
+        surat = service.ajukan_surat(
+            actor=warga,
+            jenis_surat="SKU",
+            keperluan="Test konsistensi",
+        )
+
+        for status in [STATUS_VERIFIED, STATUS_PROCESSED, STATUS_DONE]:
+            surat = service.proses_surat(admin, surat.id, status)
+
+        last_history = surat.histori_status.first()
+
+        assert last_history is not None
+        assert surat.status == last_history.status_to
+        assert surat.histori_status.count() == 4  # PENDING + 3 update
+
+======================================================================
+
+######################## FILE: test_views.py #########################
+
+import json
+import pytest
+from django.contrib.auth import get_user_model
+from django.test import Client
+from django.urls import reverse
+import uuid
+
+
+from features.layanan_administrasi.domain import JENIS_SKU
+
+User = get_user_model()
+
+
+# =========================
+# BASE FACTORY
+# =========================
+@pytest.fixture
+def user_factory():
+    counter = 1
+
+    def create(role="WARGA", is_staff=False):
+        nonlocal counter
+
+        nik = str(counter).zfill(16)
+        counter += 1
+
+        return User.objects.create_user(
+            nik=nik,
+            password="pass",
+            nama_lengkap=f"User {nik}",
+            role=role,
+            is_staff=is_staff,
+        )
+
+    return create
+
+
+# =========================
+# AJUKAN SURAT
+# =========================
+@pytest.mark.django_db
+class TestAjukanSuratView:
+
+    def test_should_return_401_when_not_authenticated(self):
+        client = Client()
+
+        response = client.post(reverse("surat-ajukan"))
+
+        assert response.status_code == 401
+
+    def test_should_allow_warga_submit(self, user_factory):
+        client = Client()
+        warga = user_factory(role="WARGA")
+
+        client.force_login(warga)
+
+        response = client.post(
+            reverse("surat-ajukan"),
+            data=json.dumps({
+                "jenis_surat": JENIS_SKU,
+                "keperluan": "Keperluan panjang sekali"
+            }),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201
+
+    def test_admin_cannot_submit_surat(self, user_factory):
+        client = Client()
+        admin = user_factory(role="ADMIN", is_staff=True)
+
+        client.force_login(admin)
+
+        response = client.post(
+            reverse("surat-ajukan"),
+            data=json.dumps({
+                "jenis_surat": JENIS_SKU,
+                "keperluan": "Test"
+            }),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+
+    def test_invalid_payload_should_fail(self, user_factory):
+        client = Client()
+        warga = user_factory(role="WARGA")
+
+        client.force_login(warga)
+
+        response = client.post(
+            reverse("surat-ajukan"),
+            data=json.dumps({
+                "jenis_surat": "",  # invalid
+                "keperluan": ""
+            }),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+
+
+# =========================
+# LIST SURAT
+# =========================
+@pytest.mark.django_db
+class TestListSuratView:
+
+    def test_should_return_401_when_not_authenticated(self):
+        client = Client()
+
+        response = client.get(reverse("surat-list"))
+
+        assert response.status_code == 401
+
+
+# =========================
+# DETAIL SURAT
+# =========================
+@pytest.mark.django_db
+class TestDetailSuratView:
+
+    def test_warga_cannot_view_other_user_surat(self, user_factory):
+        client = Client()
+
+        warga1 = user_factory(role="WARGA")
+        warga2 = user_factory(role="WARGA")
+
+        from features.layanan_administrasi.services import SuratService
+        service = SuratService()
+
+        surat = service.repository.create_surat(
+            warga1.id, JENIS_SKU, "Keperluan panjang"
+        )
+
+        client.force_login(warga2)
+
+        response = client.get(
+            reverse("surat-detail", kwargs={"surat_id": str(surat.id)})
+        )
+
+        assert response.status_code == 403
+
+
+# =========================
+# LIST ADVANCED
+# =========================
+@pytest.mark.django_db
+class TestListSuratAdvanced:
+
+    def test_warga_only_see_own_surat(self, user_factory):
+        client = Client()
+
+        warga1 = user_factory(role="WARGA")
+        warga2 = user_factory(role="WARGA")
+
+        from features.layanan_administrasi.services import SuratService
+        service = SuratService()
+
+        service.repository.create_surat(warga1.id, JENIS_SKU, "A panjang")
+        service.repository.create_surat(warga2.id, JENIS_SKU, "B panjang")
+
+        client.force_login(warga1)
+
+        response = client.get(reverse("surat-list"))
+
+        data = response.json()["data"]
+
+        assert len(data) == 1
+
+    def test_admin_can_see_all_surat(self, user_factory):
+        client = Client()
+
+        admin = user_factory(role="ADMIN", is_staff=True)
+        warga = user_factory(role="WARGA")
+
+        from features.layanan_administrasi.services import SuratService
+        service = SuratService()
+
+        service.repository.create_surat(
+            warga.id, JENIS_SKU, "Keperluan panjang"
+        )
+
+        client.force_login(admin)
+
+        response = client.get(reverse("surat-list"))
+
+        assert response.status_code == 200
+        assert len(response.json()["data"]) >= 1
+
+import uuid
+
+@pytest.mark.django_db
+class TestDetailSuratEdgeCase:
+
+    def test_should_return_404_if_surat_not_found(self, user_factory):
+        client = Client()
+        warga = user_factory(role="WARGA")
+
+        client.force_login(warga)
+
+        fake_id = str(uuid.uuid4())  
+
+        response = client.get(
+            reverse("surat-detail", kwargs={"surat_id": fake_id})
+        )
+
+        assert response.status_code == 404
+
+@pytest.mark.django_db
+class TestDetailSuratSuccess:
+
+    def test_warga_can_view_own_surat(self, user_factory):
+        client = Client()
+        warga = user_factory(role="WARGA")
+
+        from features.layanan_administrasi.services import SuratService
+        service = SuratService()
+
+        surat = service.repository.create_surat(
+            warga.id, JENIS_SKU, "Test"
+        )
+
+        client.force_login(warga)
+
+        response = client.get(
+            reverse("surat-detail", kwargs={"surat_id": str(surat.id)})
+        )
+
+        assert response.status_code == 200
+
+@pytest.mark.django_db
+class TestDetailSuratAdmin:
+
+    def test_admin_can_view_any_surat(self, user_factory):
+        client = Client()
+
+        admin = user_factory(role="ADMIN", is_staff=True)
+        warga = user_factory(role="WARGA")
+
+        from features.layanan_administrasi.services import SuratService
+        service = SuratService()
+
+        surat = service.repository.create_surat(
+            warga.id, JENIS_SKU, "Test"
+        )
+
+        client.force_login(admin)
+
+        response = client.get(
+            reverse("surat-detail", kwargs={"surat_id": str(surat.id)})
+        )
+
+        assert response.status_code == 200
+
+@pytest.mark.django_db
+class TestListSuratEmpty:
+
+    def test_should_return_empty_list(self, user_factory):
+        client = Client()
+        warga = user_factory(role="WARGA")
+
+        client.force_login(warga)
+
+        response = client.get(reverse("surat-list"))
+
+        assert response.status_code == 200
+        assert response.json()["data"] == []
+
+@pytest.mark.django_db
+class TestAjukanSuratValidationEdge:
+
+    def test_missing_keperluan_should_fail(self, user_factory):
+        client = Client()
+        warga = user_factory(role="WARGA")
+
+        client.force_login(warga)
+
+        response = client.post(
+            reverse("surat-ajukan"),
+            data=json.dumps({
+                "jenis_surat": JENIS_SKU
+            }),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+
+======================================================================
+
+
+```
+
+---
+## File: `layanan_administrasi/tests/test_api.py`
+
+```python
+import pytest
+import json
+from features.layanan_administrasi.models import LayananSurat
+from unittest.mock import patch
+
+@pytest.mark.django_db
+class TestSuratAPI:
+
+    def test_warga_bisa_ajukan_surat(self, client, warga_user):
+        client.force_login(warga_user)
+        payload = {"jenis_surat": "SKTM", "keperluan": "Keperluan beasiswa anak sekolah"}
+        response = client.post("/api/v1/layanan-administrasi/surat/ajukan", data=json.dumps(payload), content_type="application/json")
+        assert response.status_code == 201
+
+    def test_admin_bisa_proses_surat(self, client, admin_user, warga_user):
+        client.force_login(admin_user)
+        surat = LayananSurat.objects.create(pemohon=warga_user, jenis_surat="SKU", keperluan="Buka usaha", status="PENDING")
+        
+        payload = {"status": "VERIFIED"}
+        # Cast ID ke string secara eksplisit untuk URL
+        response = client.post(f"/api/v1/layanan-administrasi/surat/{str(surat.id)}/proses", data=json.dumps(payload), content_type="application/json")
+        assert response.status_code == 200
+
+    @patch('features.layanan_administrasi.services.audit_event')
+    def test_proses_surat_memicu_audit_log(self, mock_audit, client, admin_user, warga_user):
+        client.force_login(admin_user)
+        surat = LayananSurat.objects.create(pemohon=warga_user, jenis_surat="SKU", keperluan="Tes", status="PENDING")
+        
+        payload = {"status": "VERIFIED"}
+        response = client.post(f"/api/v1/layanan-administrasi/surat/{str(surat.id)}/proses", data=json.dumps(payload), content_type="application/json")
+        
+        assert response.status_code == 200
+        mock_audit.assert_called_once()
+```
+
+---
+## File: `layanan_administrasi/tests/test_domain.py`
+
+```python
+import pytest
+
+from features.layanan_administrasi.domain import (
+    validate_jenis_surat,
+    validate_keperluan,
+    validate_status_transition,
+    validate_rejection,
+    InvalidJenisSuratError,
+    InvalidKeperluanError,
+    InvalidStatusTransitionError,
+    RejectionReasonRequiredError,
+    JENIS_SKU,
+    STATUS_PENDING,
+    STATUS_VERIFIED,
+    STATUS_DONE,
+    STATUS_REJECTED,
+)
+
+
+class TestJenisSuratValidation:
+    def test_should_accept_valid_jenis_surat(self):
+        """Validasi jenis surat yang benar harus lolos"""
+        validate_jenis_surat(JENIS_SKU)
+
+    def test_should_reject_invalid_jenis_surat(self):
+        """Harus error jika jenis surat tidak valid"""
+        with pytest.raises(InvalidJenisSuratError):
+            validate_jenis_surat("SALAH")
+
+
+class TestKeperluanValidation:
+    def test_should_reject_empty_keperluan(self):
+        """Harus error jika keperluan kosong"""
+        with pytest.raises(InvalidKeperluanError):
+            validate_keperluan("")
+
+    def test_should_reject_short_keperluan(self):
+        """Harus error jika keperluan terlalu pendek"""
+        with pytest.raises(InvalidKeperluanError):
+            validate_keperluan("pendek")
+
+    def test_should_accept_valid_keperluan(self):
+        """Keperluan valid harus lolos"""
+        validate_keperluan("Mengurus keperluan administrasi desa")
+
+
+class TestStatusTransition:
+    def test_should_allow_valid_transition(self):
+        """Transisi status valid harus lolos"""
+        validate_status_transition(STATUS_PENDING, STATUS_VERIFIED)
+
+    def test_should_reject_invalid_transition(self):
+        """Transisi status tidak valid harus error"""
+        with pytest.raises(InvalidStatusTransitionError):
+            validate_status_transition(STATUS_DONE, STATUS_VERIFIED)
+
+
+class TestRejectionValidation:
+    def test_should_require_reason_when_rejected(self):
+        """Status REJECTED wajib memiliki alasan"""
+        with pytest.raises(RejectionReasonRequiredError):
+            validate_rejection(STATUS_REJECTED, "")
+
+    def test_should_pass_when_reason_provided(self):
+        """Status REJECTED dengan alasan harus lolos"""
+        validate_rejection(STATUS_REJECTED, "Dokumen tidak lengkap")
+```
+
+---
+## File: `layanan_administrasi/tests/test_integration.py`
+
+```python
+import json
+import pytest
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+@pytest.mark.django_db
+class TestSuratEndToEnd:
+
+    def test_should_complete_full_flow_from_submit_to_done(self, client):
+        admin = User.objects.create_superuser(
+            nik="1111111111111111", 
+            password="password", 
+            nama_lengkap="Admin E2E", 
+            role="SUPERADMIN"
+        )
+        warga = User.objects.create_user(
+            nik="2222222222222222", 
+            password="password", 
+            nama_lengkap="Warga E2E", 
+            role="WARGA"
+        )
+
+        client.force_login(warga)
+        payload_submit = {"jenis_surat": "SKU", "keperluan": "Pengajuan surat usaha"}
+        response = client.post("/api/v1/layanan-administrasi/surat/ajukan", data=json.dumps(payload_submit), content_type="application/json")
+        
+        assert response.status_code == 201
+        surat_id = str(response.json()["id"])
+
+        client.force_login(admin)
+
+        def proses(status, **extra_data):
+            payload = {"status": status}
+            payload.update(extra_data)
+            return client.post(
+                f"/api/v1/layanan-administrasi/surat/{surat_id}/proses",
+                data=json.dumps(payload),
+                content_type="application/json",
+            )
+
+        response = proses("VERIFIED")
+        assert response.status_code == 200
+        
+        response = proses("PROCESSED", nomor_surat="001/SKU/IV/2026")
+        assert response.status_code == 200
+        
+        response = proses("DONE")
+        assert response.status_code == 200
+```
+
+---
+## File: `layanan_administrasi/tests/test_repositories.py`
+
+```python
+# features/layanan_administrasi/tests/test_repositories.py
+
+import pytest
+from django.contrib.auth import get_user_model
+
+from features.layanan_administrasi.repositories import SuratRepository
+from features.layanan_administrasi.models import LayananSurat
+
+User = get_user_model()
+
+
+@pytest.mark.django_db
+class TestCreateSuratRepository:
+    def test_should_create_surat_and_initial_history(self):
+        """Harus membuat surat + 1 histori awal (PENDING)"""
+
+        user = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Warga",
+            role="WARGA",
+        )
+
+        repo = SuratRepository()
+
+        surat = repo.create_surat(
+            pemohon_id=user.id,
+            jenis_surat="SKU",
+            keperluan="Untuk keperluan usaha toko"
+        )
+
+        assert surat is not None
+        assert surat.status == "PENDING"
+        assert surat.pemohon_id == user.id
+
+        #  cek histori
+        histories = surat.histori_status.all()
+        assert histories.count() == 1
+
+        history = histories.first()
+        assert history.status_from is None
+        assert history.status_to == "PENDING"
+        assert history.changed_by_id == user.id
+
+
+@pytest.mark.django_db
+class TestUpdateStatusRepository:
+    def test_should_update_status_and_create_history(self):
+        """Setiap update status harus membuat histori baru"""
+
+        user = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Warga",
+            role="WARGA",
+        )
+
+        repo = SuratRepository()
+
+        surat = repo.create_surat(
+            pemohon_id=user.id,
+            jenis_surat="SKU",
+            keperluan="Untuk usaha"
+        )
+
+        updated = repo.update_status(
+            surat=surat,
+            new_status="VERIFIED",
+            actor_id=user.id
+        )
+
+        assert updated.status == "VERIFIED"
+
+        #  histori harus nambah
+        assert updated.histori_status.count() == 2
+
+
+    def test_should_store_nomor_surat_when_provided(self):
+        """Nomor surat harus tersimpan jika diberikan"""
+
+        user = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role="ADMIN",
+        )
+
+        repo = SuratRepository()
+
+        surat = repo.create_surat(
+            pemohon_id=user.id,
+            jenis_surat="SKU",
+            keperluan="Untuk usaha"
+        )
+
+        updated = repo.update_status(
+            surat=surat,
+            new_status="PROCESSED",
+            actor_id=user.id,
+            nomor_surat="470/SKU/IV/2026/ABCD"
+        )
+
+        assert updated.nomor_surat == "470/SKU/IV/2026/ABCD"
+
+
+    def test_should_store_rejection_reason_when_rejected(self):
+        """Rejection reason harus tersimpan saat status REJECTED"""
+
+        user = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role="ADMIN",
+        )
+
+        repo = SuratRepository()
+
+        surat = repo.create_surat(
+            pemohon_id=user.id,
+            jenis_surat="SKU",
+            keperluan="Untuk usaha"
+        )
+
+        updated = repo.update_status(
+            surat=surat,
+            new_status="REJECTED",
+            actor_id=user.id,
+            rejection_reason="Dokumen tidak lengkap"
+        )
+
+        assert updated.rejection_reason == "Dokumen tidak lengkap"
+
+
+    def test_should_not_set_rejection_reason_if_not_rejected(self):
+        """Rejection reason tidak boleh tersimpan jika bukan REJECTED"""
+
+        user = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role="ADMIN",
+        )
+
+        repo = SuratRepository()
+
+        surat = repo.create_surat(
+            pemohon_id=user.id,
+            jenis_surat="SKU",
+            keperluan="Untuk usaha"
+        )
+
+        updated = repo.update_status(
+            surat=surat,
+            new_status="VERIFIED",
+            actor_id=user.id,
+            rejection_reason="Tidak valid"
+        )
+
+        assert updated.rejection_reason is None
+```
+
+---
+## File: `layanan_administrasi/tests/test_services.py`
+
+```python
+import pytest
+from unittest.mock import patch
+from django.contrib.auth import get_user_model
+
+from features.layanan_administrasi.services import SuratService
+from features.layanan_administrasi.domain import (
+    JENIS_SKU,
+    STATUS_VERIFIED,
+    STATUS_PROCESSED,
+    STATUS_DONE,
+    STATUS_REJECTED,
+    InvalidStatusTransitionError,
+    RejectionReasonRequiredError,
+)
+
+User = get_user_model()
+
+
+# =========================
+# 🔹 BASE FACTORY
+# =========================
+@pytest.fixture
+def user_factory():
+    counter = 1
+
+    def create(role="WARGA", is_staff=False):
+        nonlocal counter
+
+        nik = str(counter).zfill(16)
+        counter += 1
+
+        return User.objects.create_user(
+            nik=nik,
+            password="pass",
+            nama_lengkap=f"User {nik}",
+            role=role,
+            is_staff=is_staff,
+        )
+
+    return create
+
+
+@pytest.fixture
+def surat_setup(user_factory):
+    warga = user_factory(role="WARGA")
+    admin = user_factory(role="ADMIN", is_staff=True)
+
+    service = SuratService()
+    surat = service.repository.create_surat(
+        warga.id, JENIS_SKU, "Keperluan panjang sekali"
+    )
+
+    return warga, admin, service, surat
+
+
+# =========================
+# 🔹 PROSES SURAT (ADVANCED)
+# =========================
+@pytest.mark.django_db
+class TestProsesSuratAdvanced:
+
+    def test_should_follow_valid_state_machine_flow(self, surat_setup):
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+        service.proses_surat(admin, surat.id, STATUS_PROCESSED)
+        updated = service.proses_surat(admin, surat.id, STATUS_DONE)
+
+        assert updated.status == STATUS_DONE
+
+    def test_should_reject_invalid_transition(self, surat_setup):
+        _, admin, service, surat = surat_setup
+
+        with pytest.raises(InvalidStatusTransitionError):
+            service.proses_surat(admin, surat.id, STATUS_DONE)
+
+    def test_should_require_rejection_reason(self, surat_setup):
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+
+        with pytest.raises(RejectionReasonRequiredError):
+            service.proses_surat(admin, surat.id, STATUS_REJECTED)
+
+    def test_should_allow_rejection_with_reason(self, surat_setup):
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+
+        updated = service.proses_surat(
+            admin,
+            surat.id,
+            STATUS_REJECTED,
+            rejection_reason="Tidak valid",
+        )
+
+        assert updated.status == STATUS_REJECTED
+
+
+# =========================
+# 🔹 NOMOR SURAT
+# =========================
+@pytest.mark.django_db
+class TestNomorSurat:
+
+    @patch("features.layanan_administrasi.services.generate_nomor_surat")
+    def test_should_generate_nomor_surat_if_not_provided(self, mock_nomor, surat_setup):
+        mock_nomor.return_value = "AUTO-NOMOR"
+
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+        service.proses_surat(admin, surat.id, STATUS_PROCESSED)
+        updated = service.proses_surat(admin, surat.id, STATUS_DONE)
+
+        assert updated.nomor_surat == "AUTO-NOMOR"
+
+    def test_should_not_override_manual_nomor(self, surat_setup):
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+        service.proses_surat(admin, surat.id, STATUS_PROCESSED)
+
+        updated = service.proses_surat(
+            admin,
+            surat.id,
+            STATUS_DONE,
+            nomor_surat="MANUAL-123",
+        )
+
+        assert updated.nomor_surat == "MANUAL-123"
+
+
+# =========================
+# 🔹 PDF GENERATION
+# =========================
+@pytest.mark.django_db
+class TestPDFGeneration:
+
+    @patch("features.layanan_administrasi.services.generate_pdf_from_html")
+    @patch("features.layanan_administrasi.services.render_surat_html")
+    def test_should_attach_pdf_when_done(self, mock_render, mock_pdf, surat_setup):
+        mock_render.return_value = "<html></html>"
+        mock_pdf.return_value = b"PDF"
+
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+        service.proses_surat(admin, surat.id, STATUS_PROCESSED)
+        updated = service.proses_surat(admin, surat.id, STATUS_DONE)
+
+        assert updated.pdf_file is not None
+
+    @patch("features.layanan_administrasi.services.generate_pdf_from_html")
+    @patch("features.layanan_administrasi.services.render_surat_html")
+    def test_should_not_crash_when_pdf_fails(self, mock_render, mock_pdf, surat_setup):
+        mock_render.return_value = "<html></html>"
+        mock_pdf.side_effect = Exception("PDF ERROR")
+
+        _, admin, service, surat = surat_setup
+
+        service.proses_surat(admin, surat.id, STATUS_VERIFIED)
+        service.proses_surat(admin, surat.id, STATUS_PROCESSED)
+
+        updated = service.proses_surat(admin, surat.id, STATUS_DONE)
+
+        assert updated.status == STATUS_DONE
+
+
+# =========================
+# 🔹 AUDIT LOG
+# =========================
+@pytest.mark.django_db
+class TestAuditLogging:
+
+    @patch("features.layanan_administrasi.services.audit_event")
+    def test_should_log_event_when_submit(self, mock_audit, user_factory):
+
+        warga = user_factory(role="WARGA")
+
+        service = SuratService()
+        surat = service.ajukan_surat(
+            actor=warga,
+            jenis_surat="SKU",
+            keperluan="Untuk usaha",
+        )
+
+        assert surat is not None
+        mock_audit.assert_called_once()
+
+
+# =========================
+# 🔹 DATA CONSISTENCY
+# =========================
+@pytest.mark.django_db
+class TestDataConsistency:
+
+    def test_status_should_match_latest_history(self, user_factory):
+
+        warga = user_factory(role="WARGA")
+        admin = user_factory(role="ADMIN", is_staff=True)
+
+        service = SuratService()
+
+        surat = service.ajukan_surat(
+            actor=warga,
+            jenis_surat="SKU",
+            keperluan="Test konsistensi",
+        )
+
+        for status in [STATUS_VERIFIED, STATUS_PROCESSED, STATUS_DONE]:
+            surat = service.proses_surat(admin, surat.id, status)
+
+        last_history = surat.histori_status.first()
+
+        assert last_history is not None
+        assert surat.status == last_history.status_to
+        assert surat.histori_status.count() == 4  # PENDING + 3 update
+```
+
+---
+## File: `layanan_administrasi/tests/__init__.py`
+
+```python
+
+```
+

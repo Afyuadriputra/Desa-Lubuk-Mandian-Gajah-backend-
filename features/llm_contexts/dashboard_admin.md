@@ -1,6 +1,6 @@
 # Feature Context: dashboard_admin
 
-Generated at: 2026-04-17T14:51:50
+Generated at: 2026-04-18T23:18:05
 Feature path: `D:\Kuliah\joki\radit\desa\backend\features\dashboard_admin`
 
 Dokumen ini berisi layer penting untuk konteks LLM.
@@ -16,8 +16,6 @@ Folder `tests`, `migrations`, `logs`, dan file non-konteks tidak disertakan.
 - `permissions.py`
 - `schemas.py`
 - `api.py`
-- `views.py`
-- `urls.py`
 
 ---
 
@@ -209,53 +207,6 @@ def analitik_dashboard_api(request: HttpRequest):
         return 403, {"detail": str(e)}
     except Exception as e:
         return 500, {"detail": "Terjadi kesalahan pada server saat memuat analitik."}
-```
-
----
-
-## File: `views.py`
-
-```python
-# features/dashboard_admin/views.py
-
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET
-
-from features.dashboard_admin.domain import DashboardAccessError
-from features.dashboard_admin.services import DashboardService
-from toolbox.security.auth import is_active_user
-
-dashboard_service = DashboardService()
-
-@require_GET
-def analitik_dashboard_view(request):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-    
-    try:
-        data = dashboard_service.get_analitik_lengkap(actor)
-        return JsonResponse({"data": data}, status=200)
-    except DashboardAccessError as e:
-        return JsonResponse({"detail": str(e)}, status=403)
-    except Exception as e:
-        # Penanganan error global (KISS) agar server tidak crash jika query gagal
-        return JsonResponse({"detail": "Terjadi kesalahan pada server saat memuat analitik."}, status=500)
-```
-
----
-
-## File: `urls.py`
-
-```python
-# features/dashboard_admin/urls.py
-
-from django.urls import path
-from features.dashboard_admin.views import analitik_dashboard_view
-
-urlpatterns = [
-    path("dashboard/analitik/", analitik_dashboard_view, name="dashboard-analitik"),
-]
 ```
 
 ---

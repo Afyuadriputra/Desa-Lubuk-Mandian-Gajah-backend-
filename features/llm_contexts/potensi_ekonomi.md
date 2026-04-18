@@ -1,6 +1,6 @@
 # Feature Context: potensi_ekonomi
 
-Generated at: 2026-04-17T14:51:50
+Generated at: 2026-04-18T23:18:05
 Feature path: `D:\Kuliah\joki\radit\desa\backend\features\potensi_ekonomi`
 
 Dokumen ini berisi layer penting untuk konteks LLM.
@@ -14,8 +14,8 @@ Folder `tests`, `migrations`, `logs`, dan file non-konteks tidak disertakan.
 - `repositories.py`
 - `services.py`
 - `permissions.py`
-- `views.py`
-- `urls.py`
+- `schemas.py`
+- `api.py`
 
 ---
 
@@ -170,8 +170,8 @@ from features.potensi_ekonomi.permissions import (
 )
 from features.potensi_ekonomi.repositories import UnitUsahaRepository
 from toolbox.logging import audit_event, get_logger
-from toolbox.security.sanitizers import sanitize_rich_text_content
 from toolbox.security.upload_validators import validate_image_upload
+# Import sanitize_rich_text_content dihapus karena sudah ditangani otomatis oleh Schema Ninja.
 
 
 class PermissionDeniedError(Exception):
@@ -193,6 +193,7 @@ class PotensiEkonomiService:
         if not can_manage_data_bumdes(actor):
             raise PermissionDeniedError("Anda tidak memiliki izin mengelola data BUMDes.")
 
+        # Validasi domain (business rules) tetap berjalan
         validate_kategori(data.get("kategori"))
         validate_input_usaha(data.get("nama_usaha"), data.get("kontak_wa", ""))
 
@@ -202,19 +203,18 @@ class PotensiEkonomiService:
             except ValidationError as e:
                 raise FileUploadError(str(e.message))
 
-        # Sanitasi input HTML jika frontend menggunakan WYSIWYG editor
-        clean_deskripsi = sanitize_rich_text_content(data.get("deskripsi", ""))
-        clean_fasilitas = sanitize_rich_text_content(data.get("fasilitas", ""))
-
+        # KISS & DRY: Dictionary 'data' dari API Pydantic/Ninja sudah terjamin 
+        # tipe datanya (boolean, float) dan bersih dari XSS (SafeHTMLString).
         create_data = {
-            "nama_usaha": data.get("nama_usaha").strip(),
+            "nama_usaha": data.get("nama_usaha"),
             "kategori": data.get("kategori"),
-            "deskripsi": clean_deskripsi,
-            "fasilitas": clean_fasilitas,
-            "kontak_wa": data.get("kontak_wa", "").strip(),
-            "harga_tiket": data.get("harga_tiket") or None,
-            "is_published": str(data.get("is_published", "false")).lower() == "true",
+            "deskripsi": data.get("deskripsi"),
+            "fasilitas": data.get("fasilitas"),
+            "kontak_wa": data.get("kontak_wa"),
+            "harga_tiket": data.get("harga_tiket"),
+            "is_published": data.get("is_published", False),
         }
+        
         if foto:
             create_data["foto_utama"] = foto
 
@@ -278,166 +278,137 @@ def can_view_katalog_publik(actor) -> bool:
 
 ---
 
-## File: `views.py`
+## File: `schemas.py`
 
 ```python
-# features/potensi_ekonomi/views.py
+# features/potensi_ekonomi/schemas.py
 
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET, require_POST
+from datetime import datetime
+from typing import Optional
+from ninja import Schema
+from toolbox.security.sanitizers import SafeHTMLString, SafePlainTextString
 
-from features.potensi_ekonomi.domain import PotensiEkonomiError
-from features.potensi_ekonomi.services import (
-    FileUploadError,
-    PermissionDeniedError,
-    PotensiEkonomiService,
-    UnitUsahaNotFoundError,
-)
-from toolbox.security.auth import is_active_user
+# --- INPUT SCHEMAS ---
 
-ekonomi_service = PotensiEkonomiService()
+class BuatUnitUsahaIn(Schema):
+    """
+    Schema untuk input form-data.
+    DRY: SafePlainTextString dan SafeHTMLString otomatis membersihkan XSS!
+    """
+    nama_usaha: SafePlainTextString
+    kategori: str
+    deskripsi: SafeHTMLString
+    fasilitas: Optional[SafeHTMLString] = None
+    kontak_wa: Optional[str] = None
+    harga_tiket: Optional[float] = None
+    is_published: bool = False
 
+# --- OUTPUT SCHEMAS ---
 
-@require_GET
-def katalog_publik_view(request):
-    """Endpoint untuk warga melihat katalog BUMDes/Wisata yang aktif."""
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
+class KatalogPublikOut(Schema):
+    """YAGNI: Warga hanya butuh data dasar untuk melihat katalog."""
+    id: int
+    nama_usaha: str
+    kategori: str
+    deskripsi: str
+    harga_tiket: Optional[float]
+    foto_url: Optional[str] = None
 
-    try:
-        qs = ekonomi_service.get_katalog_publik(actor)
-        data = [
-            {
-                "id": u.id,
-                "nama_usaha": u.nama_usaha,
-                "kategori": u.kategori,
-                "deskripsi": u.deskripsi,
-                "harga_tiket": u.harga_tiket,
-                "foto_url": u.foto_utama.url if u.foto_utama else None,
-            } for u in qs
-        ]
-        return JsonResponse({"data": data}, status=200)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
+    @staticmethod
+    def resolve_foto_url(obj):
+        return obj.foto_utama.url if obj.foto_utama else None
 
+class KatalogAdminOut(Schema):
+    """YAGNI: Admin butuh melihat status publish di tabel list dashboard."""
+    id: int
+    nama_usaha: str
+    kategori: str
+    is_published: bool
+    created_at: datetime
 
-@require_GET
-def list_admin_view(request):
-    """Endpoint untuk admin melihat semua data (termasuk draft)."""
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
+class UnitUsahaDetailOut(Schema):
+    """Schema lengkap untuk halaman detail."""
+    id: int
+    nama_usaha: str
+    kategori: str
+    deskripsi: str
+    fasilitas: Optional[str]
+    kontak_wa: Optional[str]
+    harga_tiket: Optional[float]
+    is_published: bool
+    foto_url: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
-    try:
-        qs = ekonomi_service.get_semua_unit_admin(actor)
-        data = [
-            {
-                "id": u.id,
-                "nama_usaha": u.nama_usaha,
-                "kategori": u.kategori,
-                "is_published": u.is_published,
-                "created_at": u.created_at.isoformat(),
-            } for u in qs
-        ]
-        return JsonResponse({"data": data}, status=200)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-
-
-@require_POST
-def buat_unit_usaha_view(request):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    # Menangani form-data karena ada upload gambar
-    data_payload = {
-        "nama_usaha": request.POST.get("nama_usaha"),
-        "kategori": request.POST.get("kategori"),
-        "deskripsi": request.POST.get("deskripsi"),
-        "fasilitas": request.POST.get("fasilitas"),
-        "kontak_wa": request.POST.get("kontak_wa"),
-        "harga_tiket": request.POST.get("harga_tiket"),
-        "is_published": request.POST.get("is_published", "false"),
-    }
-    foto = request.FILES.get("foto_utama")
-
-    try:
-        unit = ekonomi_service.buat_unit_usaha(actor, data_payload, foto)
-    except PotensiEkonomiError as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
-    except FileUploadError as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-
-    return JsonResponse(
-        {
-            "detail": "Data BUMDes/Wisata berhasil ditambahkan.",
-            "data": {
-                "id": unit.id,
-                "nama_usaha": unit.nama_usaha,
-                "is_published": unit.is_published,
-            }
-        },
-        status=201
-    )
-
-
-@require_GET
-def detail_unit_view(request, unit_id):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    try:
-        unit = ekonomi_service.get_detail_unit(actor, unit_id)
-    except UnitUsahaNotFoundError as exc:
-        return JsonResponse({"detail": str(exc)}, status=404)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-
-    return JsonResponse(
-        {
-            "data": {
-                "id": unit.id,
-                "nama_usaha": unit.nama_usaha,
-                "kategori": unit.kategori,
-                "deskripsi": unit.deskripsi,
-                "fasilitas": unit.fasilitas,
-                "kontak_wa": unit.kontak_wa,
-                "harga_tiket": unit.harga_tiket,
-                "is_published": unit.is_published,
-                "foto_url": unit.foto_utama.url if unit.foto_utama else None,
-            }
-        },
-        status=200
-    )
+    @staticmethod
+    def resolve_foto_url(obj):
+        return obj.foto_utama.url if obj.foto_utama else None
 ```
 
 ---
 
-## File: `urls.py`
+## File: `api.py`
 
 ```python
-# features/potensi_ekonomi/urls.py
+# features/potensi_ekonomi/api.py
 
-from django.urls import path
+from typing import List
+from ninja import Router, Form, File
+from ninja.files import UploadedFile
 
-from features.potensi_ekonomi.views import (
-    buat_unit_usaha_view,
-    detail_unit_view,
-    katalog_publik_view,
-    list_admin_view,
+from .schemas import (
+    BuatUnitUsahaIn, 
+    KatalogPublikOut, 
+    KatalogAdminOut, 
+    UnitUsahaDetailOut
 )
+from .services import PotensiEkonomiService
+from toolbox.api.auth import AuthActiveUser
 
-urlpatterns = [
-    path("ekonomi/katalog/", katalog_publik_view, name="ekonomi-katalog"),
-    path("ekonomi/admin/list/", list_admin_view, name="ekonomi-admin-list"),
-    path("ekonomi/admin/buat/", buat_unit_usaha_view, name="ekonomi-admin-buat"),
-    path("ekonomi/<int:unit_id>/", detail_unit_view, name="ekonomi-detail"),
-]
+router = Router(tags=["Potensi Ekonomi (BUMDes & Wisata)"])
+
+# Dependency Inversion Principle
+ekonomi_service = PotensiEkonomiService()
+
+
+@router.get("/katalog", auth=AuthActiveUser, response=List[KatalogPublikOut])
+def katalog_publik_api(request):
+    """Endpoint untuk warga melihat etalase aktif."""
+    return ekonomi_service.get_katalog_publik(request.user)
+
+
+@router.get("/admin/list", auth=AuthActiveUser, response=List[KatalogAdminOut])
+def list_admin_api(request):
+    """
+    Endpoint untuk Admin melihat semua data (termasuk Draft).
+    Izin spesifik (can_manage_bumdes) sudah dijaga oleh Service Layer.
+    """
+    return ekonomi_service.get_semua_unit_admin(request.user)
+
+
+@router.get("/{unit_id}", auth=AuthActiveUser, response=UnitUsahaDetailOut)
+def detail_unit_api(request, unit_id: int):
+    """Detail spesifik BUMDes/Wisata."""
+    return ekonomi_service.get_detail_unit(request.user, unit_id)
+
+
+@router.post("/admin/buat", auth=AuthActiveUser, response={201: KatalogAdminOut})
+def buat_unit_usaha_api(
+    request, 
+    payload: Form[BuatUnitUsahaIn], 
+    foto_utama: File[UploadedFile] = None
+):
+    """
+    Endpoint untuk membuat Unit Usaha baru.
+    Menerima Multipart/Form-Data karena ada gambar.
+    Input HTML dari payload.deskripsi sudah otomatis bersih dari XSS oleh Schema.
+    """
+    unit = ekonomi_service.buat_unit_usaha(
+        actor=request.user,
+        data=payload.dict(), # Langsung diubah menjadi dictionary untuk service
+        foto=foto_utama
+    )
+    return 201, unit
 ```
 
 ---

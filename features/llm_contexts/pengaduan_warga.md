@@ -1,6 +1,6 @@
 # Feature Context: pengaduan_warga
 
-Generated at: 2026-04-17T14:51:50
+Generated at: 2026-04-18T23:18:05
 Feature path: `D:\Kuliah\joki\radit\desa\backend\features\pengaduan_warga`
 
 Dokumen ini berisi layer penting untuk konteks LLM.
@@ -14,8 +14,8 @@ Folder `tests`, `migrations`, `logs`, dan file non-konteks tidak disertakan.
 - `repositories.py`
 - `services.py`
 - `permissions.py`
-- `views.py`
-- `urls.py`
+- `schemas.py`
+- `api.py`
 
 ---
 
@@ -382,199 +382,142 @@ def can_update_pengaduan_status(actor) -> bool:
 
 ---
 
-## File: `views.py`
+## File: `schemas.py`
 
 ```python
-# features/pengaduan_warga/views.py
+# features/pengaduan_warga/schemas.py
 
-import json
+from datetime import datetime
+from typing import List, Optional
+from ninja import Schema, Field
+from toolbox.security.sanitizers import SafePlainTextString
 
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET, require_POST
+# --- INPUT SCHEMAS ---
 
-from features.pengaduan_warga.domain import PengaduanError
-from features.pengaduan_warga.services import (
-    FileUploadError,
-    PengaduanNotFoundError,
-    PengaduanService,
-    PermissionDeniedError,
-)
-from toolbox.security.auth import is_active_user
+class BuatPengaduanIn(Schema):
+    """Schema untuk input form-data (bukan JSON)"""
+    kategori: str
+    judul: SafePlainTextString
+    deskripsi: SafePlainTextString
 
-pengaduan_service = PengaduanService()
+class ProsesPengaduanIn(Schema):
+    """Schema untuk update status oleh Admin (JSON)"""
+    status: str
+    notes: Optional[SafePlainTextString] = None
 
+# --- OUTPUT SCHEMAS ---
 
-def _parse_json_body(request):
-    try:
-        return json.loads(request.body.decode("utf-8") or "{}")
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
+class PengaduanHistoryOut(Schema):
+    status_to: str
+    notes: Optional[str]
+    # Otomatis ambil dari relasi changed_by.nama_lengkap, default "System" jika None
+    changed_by_nama: str = Field("System", alias="changed_by.nama_lengkap")
+    created_at: datetime
 
+class PengaduanListOut(Schema):
+    """Schema ringkas untuk daftar pengaduan (YAGNI: tidak perlu detail lengkap)"""
+    id: int
+    judul: str
+    kategori: str
+    status: str
+    pelapor_nama: str = Field(..., alias="pelapor.nama_lengkap")
+    created_at: datetime
 
-@require_POST
-def buat_pengaduan_view(request):
-    """Menerima Multipart/Form-Data karena ada upload gambar opsional."""
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
+class PengaduanDetailOut(Schema):
+    """Schema lengkap untuk detail pengaduan beserta historinya"""
+    id: int
+    kategori: str
+    judul: str
+    deskripsi: str
+    status: str
+    foto_bukti_url: Optional[str] = None
+    pelapor_nama: str = Field(..., alias="pelapor.nama_lengkap")
+    histori: List[PengaduanHistoryOut] = []
+    created_at: datetime
+    updated_at: datetime
 
-    kategori = request.POST.get("kategori", "")
-    judul = request.POST.get("judul", "")
-    deskripsi = request.POST.get("deskripsi", "")
-    foto_bukti = request.FILES.get("foto_bukti")
+    # DRY: Method resolver bawaan Ninja untuk mengisi data custom
+    @staticmethod
+    def resolve_foto_bukti_url(obj):
+        return obj.foto_bukti.url if obj.foto_bukti else None
 
-    try:
-        pengaduan = pengaduan_service.buat_pengaduan(
-            actor=actor,
-            kategori=kategori,
-            judul=judul,
-            deskripsi=deskripsi,
-            foto_bukti=foto_bukti
-        )
-    except PengaduanError as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
-    except FileUploadError as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-
-    return JsonResponse(
-        {
-            "detail": "Pengaduan berhasil dibuat.",
-            "data": {
-                "id": pengaduan.id,
-                "status": pengaduan.status,
-                "kategori": pengaduan.kategori,
-                "created_at": pengaduan.created_at.isoformat(),
-            }
-        },
-        status=201
-    )
-
-
-@require_GET
-def list_pengaduan_view(request):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    qs = pengaduan_service.list_pengaduan(actor)
-    data = [
-        {
-            "id": p.id,
-            "judul": p.judul,
-            "kategori": p.kategori,
-            "status": p.status,
-            "pelapor": p.pelapor.nama_lengkap,
-            "created_at": p.created_at.isoformat(),
-        } for p in qs
-    ]
-
-    return JsonResponse({"data": data}, status=200)
-
-
-@require_GET
-def detail_pengaduan_view(request, pengaduan_id):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    try:
-        pengaduan = pengaduan_service.get_pengaduan_detail(actor, pengaduan_id)
-    except PengaduanNotFoundError as exc:
-        return JsonResponse({"detail": str(exc)}, status=404)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-
-    histori = [
-        {
-            "status_to": h.status_to,
-            "notes": h.notes,
-            "created_at": h.created_at.isoformat(),
-            "changed_by": h.changed_by.nama_lengkap if h.changed_by else "System"
-        }
-        for h in pengaduan.histori_tindak_lanjut.all()
-    ]
-
-    return JsonResponse(
-        {
-            "data": {
-                "id": pengaduan.id,
-                "kategori": pengaduan.kategori,
-                "judul": pengaduan.judul,
-                "deskripsi": pengaduan.deskripsi,
-                "status": pengaduan.status,
-                "foto_bukti_url": pengaduan.foto_bukti.url if pengaduan.foto_bukti else None,
-                "pelapor": {
-                    "nama_lengkap": pengaduan.pelapor.nama_lengkap,
-                },
-                "histori": histori,
-                "created_at": pengaduan.created_at.isoformat(),
-                "updated_at": pengaduan.updated_at.isoformat(),
-            }
-        },
-        status=200
-    )
-
-
-@require_POST
-def proses_pengaduan_view(request, pengaduan_id):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor):
-        return JsonResponse({"detail": "Unauthorized."}, status=401)
-
-    payload = _parse_json_body(request)
-    if payload is None:
-        return JsonResponse({"detail": "Payload JSON tidak valid."}, status=400)
-
-    try:
-        pengaduan = pengaduan_service.proses_pengaduan(
-            actor=actor,
-            pengaduan_id=pengaduan_id,
-            new_status=payload.get("status", ""),
-            notes=payload.get("notes")
-        )
-    except PengaduanError as exc:
-        return JsonResponse({"detail": str(exc)}, status=400)
-    except PermissionDeniedError as exc:
-        return JsonResponse({"detail": str(exc)}, status=403)
-    except PengaduanNotFoundError as exc:
-        return JsonResponse({"detail": str(exc)}, status=404)
-
-    return JsonResponse(
-        {
-            "detail": "Status pengaduan berhasil diperbarui.",
-            "data": {
-                "id": pengaduan.id,
-                "status": pengaduan.status,
-            }
-        },
-        status=200
-    )
+    @staticmethod
+    def resolve_histori(obj):
+        # Mengambil semua histori yang terelasi secara otomatis
+        return list(obj.histori_tindak_lanjut.all())
 ```
 
 ---
 
-## File: `urls.py`
+## File: `api.py`
 
 ```python
-# features/pengaduan_warga/urls.py
+# features/pengaduan_warga/api.py
 
-from django.urls import path
+from typing import List
+from ninja import Router, Form, File
+from ninja.files import UploadedFile
 
-from features.pengaduan_warga.views import (
-    buat_pengaduan_view,
-    detail_pengaduan_view,
-    list_pengaduan_view,
-    proses_pengaduan_view,
+from .schemas import (
+    BuatPengaduanIn, 
+    PengaduanListOut, 
+    PengaduanDetailOut, 
+    ProsesPengaduanIn
 )
+from .services import PengaduanService
+from toolbox.api.auth import AuthActiveUser, AuthAdminOnly
 
-urlpatterns = [
-    path("pengaduan/", list_pengaduan_view, name="pengaduan-list"),
-    path("pengaduan/buat/", buat_pengaduan_view, name="pengaduan-buat"),
-    path("pengaduan/<int:pengaduan_id>/", detail_pengaduan_view, name="pengaduan-detail"),
-    path("pengaduan/<int:pengaduan_id>/proses/", proses_pengaduan_view, name="pengaduan-proses"),
-]
+router = Router(tags=["Pengaduan Warga"])
+
+# Dependency Inversion Principle: Kita inject class service
+pengaduan_service = PengaduanService()
+
+
+@router.post("/buat", auth=AuthActiveUser, response={201: PengaduanListOut})
+def buat_pengaduan_api(
+    request, 
+    payload: Form[BuatPengaduanIn], 
+    foto_bukti: File[UploadedFile] = None
+):
+    """
+    Endpoint untuk warga membuat pengaduan.
+    Menerima Multipart/Form-Data karena ada upload foto opsional.
+    """
+    pengaduan = pengaduan_service.buat_pengaduan(
+        actor=request.user,
+        kategori=payload.kategori,
+        judul=payload.judul,
+        deskripsi=payload.deskripsi,
+        foto_bukti=foto_bukti
+    )
+    return 201, pengaduan
+
+
+@router.get("/", auth=AuthActiveUser, response=List[PengaduanListOut])
+def list_pengaduan_api(request):
+    """Menampilkan daftar pengaduan (Warga lihat miliknya, Admin lihat semua)."""
+    return pengaduan_service.list_pengaduan(request.user)
+
+
+@router.get("/{pengaduan_id}", auth=AuthActiveUser, response=PengaduanDetailOut)
+def detail_pengaduan_api(request, pengaduan_id: int):
+    """Menampilkan detail pengaduan beserta riwayat tindak lanjutnya."""
+    return pengaduan_service.get_pengaduan_detail(request.user, pengaduan_id)
+
+
+@router.post("/{pengaduan_id}/proses", auth=AuthAdminOnly, response=PengaduanListOut)
+def proses_pengaduan_api(request, pengaduan_id: int, payload: ProsesPengaduanIn):
+    """
+    Endpoint untuk Admin memproses/mengubah status pengaduan.
+    Hanya menerima JSON.
+    """
+    updated_pengaduan = pengaduan_service.proses_pengaduan(
+        actor=request.user,
+        pengaduan_id=pengaduan_id,
+        new_status=payload.status,
+        notes=payload.notes
+    )
+    return updated_pengaduan
 ```
 
 ---

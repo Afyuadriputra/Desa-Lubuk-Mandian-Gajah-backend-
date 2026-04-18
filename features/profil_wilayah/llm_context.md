@@ -8,7 +8,7 @@ Dokumen ini dibuat untuk membantu LLM memahami konteks modul secara akurat. Stru
 
 - Nama modul: `profil_wilayah`
 - Path modul: `D:/Kuliah/joki/radit/desa/backend/features/profil_wilayah`
-- Digenerate pada: `2026-04-17 09:17:37`
+- Digenerate pada: `2026-04-18 23:47:50`
 
 ## Panduan Membaca Modul untuk LLM
 
@@ -32,12 +32,17 @@ Saat menganalisis bug atau membuat fitur baru, prioritaskan pembacaan file dalam
 - `permissions.py`
 - `repositories.py`
 - `services.py`
-- `views.py`
-- `urls.py`
 - `admin.py`
 - `__init__.py`
+- `api.py`
 - `generate_llm_context.py`
+- `get_profil_context.py`
+- `schemas.py`
 - `tests/__init__.py`
+- `tests/test_api.py`
+- `tests/test_domain.py`
+- `tests/test_repositories.py`
+- `tests/test_services.py`
 - `migrations/0001_initial.py`
 - `migrations/__init__.py`
 
@@ -49,11 +54,12 @@ Saat menganalisis bug atau membuat fitur baru, prioritaskan pembacaan file dalam
 - `permissions.py`: Aturan otorisasi dan hak akses terhadap resource atau aksi di modul ini.
 - `repositories.py`: Lapisan akses data untuk query, penyimpanan, update, atau abstraksi interaksi database.
 - `services.py`: Use case / application service. Mengorkestrasi domain, repository, validasi, side effects, dan flow bisnis utama.
-- `views.py`: Lapisan HTTP/API. Menerima request, memanggil service, menerapkan permission, dan mengembalikan response.
-- `urls.py`: Pemetaan endpoint URL ke views.
 - `admin.py`: Konfigurasi Django admin untuk model dalam modul ini.
 - `__init__.py`: Penanda package Python. Biasanya minim logika.
+- `api.py`: File tambahan pada modul.
 - `generate_llm_context.py`: File tambahan pada modul.
+- `get_profil_context.py`: File tambahan pada modul.
+- `schemas.py`: File tambahan pada modul.
 - `tests/`: Skenario verifikasi perilaku sistem pada modul.
 - `migrations/`: Riwayat perubahan skema database.
 
@@ -269,10 +275,17 @@ class ProfilDesaService:
     def __init__(self, repo: ProfilDesaRepository = None):
         self.repo = repo or ProfilDesaRepository()
 
+    # features/profil_wilayah/services.py
+# Tidak perlu lagi mengimpor sanitize_html atau bleach di sini!
+
     def perbarui_profil(self, actor, visi: str, misi: str, sejarah: str):
         if not can_manage_data_wilayah(actor):
             raise ProfilWilayahAccessError("Akses ditolak.")
-        validate_profil_desa(visi, misi, sejarah)
+            
+        # domain validation tetap berjalan
+        validate_profil_desa(visi, misi, sejarah) 
+        
+        # Data visi, misi, sejarah sudah otomatis ter-sanitasi oleh Pydantic Schema!
         profil = self.repo.update_profil(visi, misi, sejarah)
         audit_event("PROFIL_DESA_UPDATED", actor_id=actor.id)
         return profil
@@ -281,89 +294,30 @@ class ProfilDesaService:
         return self.repo.get_profil()
 ```
 
-### views.py
-
-**Peran:** Lapisan HTTP/API. Menerima request, memanggil service, menerapkan permission, dan mengembalikan response.
-
-```python
-# features/profil_wilayah/views.py
-
-import json
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET, require_POST
-from features.profil_wilayah.services import DusunService, PerangkatService, ProfilDesaService
-from toolbox.security.auth import is_active_user
-
-dusun_service = DusunService()
-perangkat_service = PerangkatService()
-profil_service = ProfilDesaService()
-
-@require_GET
-def profil_publik_view(request):
-    """Menampilkan Visi, Misi, Sejarah dan Perangkat Desa yang aktif."""
-    profil = profil_service.get_profil()
-    perangkat = perangkat_service.get_perangkat_publik()
-    
-    return JsonResponse({
-        "profil": {"visi": profil.visi, "misi": profil.misi, "sejarah": profil.sejarah},
-        "perangkat": [{"jabatan": p.jabatan, "nama": p.user.nama_lengkap, "foto_url": p.foto.url if p.foto else None} for p in perangkat]
-    }, status=200)
-
-@require_POST
-def tambah_dusun_view(request):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor): return JsonResponse({"detail": "Unauthorized"}, status=401)
-    
-    data = json.loads(request.body.decode("utf-8") or "{}")
-    try:
-        dusun = dusun_service.tambah_dusun(actor, data.get("nama_dusun"), data.get("kepala_dusun"))
-        return JsonResponse({"detail": "Dusun berhasil ditambahkan", "id": dusun.id}, status=201)
-    except Exception as e:
-        return JsonResponse({"detail": str(e)}, status=400)
-
-@require_POST
-def tambah_perangkat_view(request):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor): return JsonResponse({"detail": "Unauthorized"}, status=401)
-    
-    try:
-        perangkat = perangkat_service.tambah_perangkat(
-            actor=actor,
-            user_id=request.POST.get("user_id"),
-            jabatan=request.POST.get("jabatan"),
-            is_published=request.POST.get("is_published", "false").lower() == "true",
-            foto=request.FILES.get("foto")
-        )
-        return JsonResponse({"detail": "Perangkat berhasil ditambahkan", "id": perangkat.id}, status=201)
-    except Exception as e:
-        return JsonResponse({"detail": str(e)}, status=400)
-```
-
-### urls.py
-
-**Peran:** Pemetaan endpoint URL ke views.
-
-```python
-# features/profil_wilayah/urls.py
-
-from django.urls import path
-from features.profil_wilayah.views import profil_publik_view, tambah_dusun_view, tambah_perangkat_view
-
-urlpatterns = [
-    path("profil/publik/", profil_publik_view, name="profil-publik"),
-    path("profil/admin/dusun/", tambah_dusun_view, name="admin-dusun-tambah"),
-    path("profil/admin/perangkat/", tambah_perangkat_view, name="admin-perangkat-tambah"),
-]
-```
-
 ### admin.py
 
 **Peran:** Konfigurasi Django admin untuk model dalam modul ini.
 
 ```python
 from django.contrib import admin
+from features.profil_wilayah.models import WilayahDusun, WilayahPerangkat, ProfilDesa
 
-# Register your models here.
+@admin.register(WilayahDusun)
+class WilayahDusunAdmin(admin.ModelAdmin):
+    list_display = ("nama_dusun", "kepala_dusun", "created_at")
+    search_fields = ("nama_dusun", "kepala_dusun")
+
+@admin.register(WilayahPerangkat)
+class WilayahPerangkatAdmin(admin.ModelAdmin):
+    list_display = ("user", "jabatan", "is_published", "created_at")
+    list_filter = ("is_published",)
+    search_fields = ("user__nama_lengkap", "jabatan")
+
+@admin.register(ProfilDesa)
+class ProfilDesaAdmin(admin.ModelAdmin):
+    list_display = ("id", "updated_at")
+    # Karena Profil Desa konsepnya YAGNI/Singleton (hanya 1 row), 
+    # kita tidak perlu filter atau search yang rumit.
 ```
 
 ### __init__.py
@@ -375,6 +329,93 @@ from django.contrib import admin
 ```
 
 ## File Tambahan
+
+### api.py
+
+**Peran:** File tambahan pada modul.
+
+```python
+# features/profil_wilayah/api.py
+
+from ninja import Router, Form, File
+from ninja.files import UploadedFile
+
+from .schemas import (
+    TambahDusunIn, 
+    TambahPerangkatIn, 
+    UpdateProfilDesaIn,
+    DusunOut, 
+    ProfilPublikAggregatedOut,
+    ProfilDesaOut
+)
+from .services import DusunService, PerangkatService, ProfilDesaService
+from toolbox.api.auth import AuthAdminOnly
+
+router = Router(tags=["Profil Wilayah"])
+
+# Dependency Inversion Principle (DIP)
+dusun_service = DusunService()
+perangkat_service = PerangkatService()
+profil_service = ProfilDesaService()
+
+
+@router.get("/publik", response=ProfilPublikAggregatedOut)
+def profil_publik_api(request):
+    """
+    Endpoint terbuka tanpa Auth. 
+    Menggabungkan Visi/Misi dan list Perangkat Desa dalam satu panggilan.
+    """
+    profil = profil_service.get_profil()
+    perangkat = perangkat_service.get_perangkat_publik()
+    
+    return {
+        "profil": profil,
+        "perangkat": list(perangkat)
+    }
+
+
+@router.post("/admin/dusun", auth=AuthAdminOnly, response={201: DusunOut})
+def tambah_dusun_api(request, payload: TambahDusunIn):
+    """Hanya Admin/Superadmin yang bisa menambah dusun."""
+    dusun = dusun_service.tambah_dusun(
+        actor=request.user, 
+        nama_dusun=payload.nama_dusun, 
+        kepala_dusun=payload.kepala_dusun
+    )
+    return 201, dusun
+
+
+@router.post("/admin/perangkat", auth=AuthAdminOnly, response={201: dict})
+def tambah_perangkat_api(
+    request, 
+    payload: Form[TambahPerangkatIn], 
+    foto: File[UploadedFile] = None
+):
+    """Menambah data perangkat desa beserta fotonya."""
+    perangkat = perangkat_service.tambah_perangkat(
+        actor=request.user,
+        user_id=payload.user_id,
+        jabatan=payload.jabatan,
+        is_published=payload.is_published,
+        foto=foto
+    )
+    return 201, {"detail": "Perangkat berhasil ditambahkan", "id": perangkat.id}
+
+
+@router.put("/admin/profil", auth=AuthAdminOnly, response=ProfilDesaOut)
+def update_profil_desa_api(request, payload: UpdateProfilDesaIn):
+    """
+    Update data Visi, Misi, dan Sejarah (Singleton).
+    Input HTML aman karena menggunakan SafeHTMLString di schema.
+    """
+    profil = profil_service.perbarui_profil(
+        actor=request.user,
+        visi=payload.visi,
+        misi=payload.misi,
+        sejarah=payload.sejarah
+    )
+    return profil
+```
 
 ### generate_llm_context.py
 
@@ -678,6 +719,131 @@ if __name__ == "__main__":
     main()
 ```
 
+### get_profil_context.py
+
+**Peran:** File tambahan pada modul.
+
+```python
+import os
+
+def build_feature_context(feature_path, target_files, output_name):
+    """
+    Mengambil file spesifik dari sebuah fitur untuk konteks LLM.
+    """
+    # Pastikan path menggunakan format yang benar untuk OS (Windows/Linux)
+    feature_dir = os.path.normpath(feature_path)
+    feature_name = os.path.basename(feature_dir)
+    
+    if not os.path.exists(feature_dir):
+        print(f"❌ Error: Folder {feature_dir} tidak ditemukan.")
+        return
+
+    print(f"📂 Memproses Fitur: {feature_name}")
+    
+    with open(output_name, "w", encoding="utf-8") as out_f:
+        out_f.write(f"# Context LLM: Fitur {feature_name}\n")
+        out_f.write(f"Lokasi: `{feature_path}`\n\n")
+        
+        for file_name in target_files:
+            file_path = os.path.join(feature_dir, file_name)
+            
+            if os.path.exists(file_path):
+                try:
+                    with open(file_path, "r", encoding="utf-8") as in_f:
+                        content = in_f.read()
+                    
+                    # Menulis ke Markdown
+                    out_f.write(f"---\n## File: `{feature_name}/{file_name}`\n\n")
+                    out_f.write(f"```python\n")
+                    out_f.write(content)
+                    out_f.write(f"\n```\n\n")
+                    print(f"✅ Berhasil mengambil: {file_name}")
+                    
+                except Exception as e:
+                    print(f"⚠️ Gagal membaca {file_name}: {e}")
+            else:
+                # Karena kamu bilang "kalau ada", kita buat log saja jika tidak ada
+                print(f"ℹ️ Skip: {file_name} (Tidak ditemukan)")
+
+if __name__ == "__main__":
+    # Path folder fitur
+    PROFIL_PATH = "profil_wilayah" 
+    
+    # List file yang kamu minta
+    FILES_TO_GET = [
+        "api.py",
+        "services.py",
+        "repositories.py",
+        "models.py",
+        "permissions.py",
+        "urls.py",
+        "schemas.py" # Tambahan jika diperlukan karena biasanya ada di Ninja/FastAPI
+    ]
+    
+    OUTPUT_FILE = "context_profil_wilayah.md"
+    
+    build_feature_context(PROFIL_PATH, FILES_TO_GET, OUTPUT_FILE)
+    print(f"\n✨ Selesai! Konteks disimpan di: {OUTPUT_FILE}")
+```
+
+### schemas.py
+
+**Peran:** File tambahan pada modul.
+
+```python
+# features/profil_wilayah/schemas.py
+
+from typing import List, Optional
+from ninja import Schema, Field
+from toolbox.security.sanitizers import SafeHTMLString, SafePlainTextString
+
+# --- INPUT SCHEMAS ---
+
+class TambahDusunIn(Schema):
+    nama_dusun: SafePlainTextString
+    kepala_dusun: SafePlainTextString
+
+class TambahPerangkatIn(Schema):
+    """Untuk form-data saat upload foto perangkat"""
+    user_id: str
+    jabatan: SafePlainTextString
+    is_published: bool = False
+
+class UpdateProfilDesaIn(Schema):
+    """Asumsi menggunakan Rich Text Editor untuk Visi, Misi, Sejarah"""
+    visi: SafeHTMLString
+    misi: SafeHTMLString
+    sejarah: SafeHTMLString
+
+
+# --- OUTPUT SCHEMAS ---
+
+class DusunOut(Schema):
+    id: int
+    nama_dusun: str
+    kepala_dusun: str
+
+class PerangkatPublikOut(Schema):
+    """YAGNI: Publik hanya butuh nama, jabatan, dan foto"""
+    jabatan: str
+    nama: str = Field(..., alias="user.nama_lengkap")
+    foto_url: Optional[str] = None
+
+    @staticmethod
+    def resolve_foto_url(obj):
+        return obj.foto.url if obj.foto else None
+
+class ProfilDesaOut(Schema):
+    visi: str
+    misi: str
+    sejarah: str
+
+class ProfilPublikAggregatedOut(Schema):
+    """KISS: Menggabungkan Profil dan Perangkat dalam 1 endpoint untuk efisiensi Frontend"""
+    profil: ProfilDesaOut
+    perangkat: List[PerangkatPublikOut]
+```
+
 ## Konteks Pengujian
 
 Bagian ini penting untuk LLM karena test menunjukkan perilaku yang diharapkan, use case yang dijalankan, dan kontrak sistem yang harus dipertahankan.
@@ -688,6 +854,196 @@ Bagian ini penting untuk LLM karena test menunjukkan perilaku yang diharapkan, u
 
 ```python
 # File kosong
+```
+
+### tests/test_api.py
+
+**Peran:** File test untuk memverifikasi perilaku modul.
+
+```python
+import pytest
+import json
+from features.profil_wilayah.models import ProfilDesa
+
+@pytest.mark.django_db
+class TestProfilWilayahAPI:
+
+    def test_publik_bisa_akses_tanpa_login_dan_teragregasi(self, client):
+        """KISS: Menguji bahwa endpoint /publik mengembalikan Profil dan Perangkat tanpa auth."""
+        # Setup data
+        ProfilDesa.objects.create(id=1, visi="Visi API", misi="Misi API", sejarah="Sejarah API")
+        
+        # Request tanpa force_login
+        response = client.get("/api/v1/profil-wilayah/publik")
+        
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Cek struktur aggregated
+        assert "profil" in data
+        assert "perangkat" in data
+        assert data["profil"]["visi"] == "Visi API"
+
+    def test_update_profil_dengan_xss_otomatis_bersih(self, client, admin_user):
+        """DRY: Menguji SafeHTMLString pada JSON Payload."""
+        client.force_login(admin_user)
+        
+        # Pydantic via JSON body
+        payload = {
+            "visi": "<b>Visi Hebat</b>",
+            "misi": "Misi Kuat",
+            "sejarah": "<script>console.log('xss')</script> Sejarah lama"
+        }
+
+        response = client.put(
+            "/api/v1/profil-wilayah/admin/profil", 
+            data=json.dumps(payload), 
+            content_type="application/json"
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        
+        assert "<b>Visi Hebat</b>" in data["visi"]
+        assert "<script>" not in data["sejarah"] # XSS hilang
+        assert "Sejarah lama" in data["sejarah"]
+```
+
+### tests/test_domain.py
+
+**Peran:** File test untuk memverifikasi perilaku modul.
+
+```python
+import pytest
+from features.profil_wilayah.domain import (
+    InvalidDataError,
+    validate_dusun,
+    validate_perangkat,
+    validate_profil_desa,
+)
+
+class TestDomainProfilWilayah:
+    # --- Validasi Dusun ---
+    def test_validasi_dusun_harus_sukses_jika_data_valid(self):
+        validate_dusun(nama_dusun="Mawar", kepala_dusun="Pak Budi")  # Tidak boleh error
+
+    def test_validasi_dusun_harus_gagal_jika_nama_terlalu_pendek(self):
+        with pytest.raises(InvalidDataError, match="minimal 3 karakter"):
+            validate_dusun(nama_dusun="AB", kepala_dusun="Pak Budi")
+
+    def test_validasi_dusun_harus_gagal_jika_kepala_dusun_kosong(self):
+        with pytest.raises(InvalidDataError, match="kepala dusun wajib diisi"):
+            validate_dusun(nama_dusun="Melati", kepala_dusun="   ")
+
+    # --- Validasi Perangkat ---
+    def test_validasi_perangkat_harus_sukses_jika_jabatan_valid(self):
+        validate_perangkat(jabatan="Sekretaris Desa")
+
+    def test_validasi_perangkat_harus_gagal_jika_jabatan_kosong(self):
+        with pytest.raises(InvalidDataError, match="Jabatan wajib diisi"):
+            validate_perangkat(jabatan="")
+
+    # --- Validasi Profil Desa ---
+    def test_validasi_profil_desa_harus_sukses_jika_lengkap(self):
+        validate_profil_desa(visi="Maju", misi="Bersama", sejarah="Tahun 1990")
+
+    def test_validasi_profil_desa_harus_gagal_jika_ada_yang_kosong(self):
+        with pytest.raises(InvalidDataError, match="tidak boleh kosong"):
+            validate_profil_desa(visi="Maju", misi="", sejarah="Tahun 1990")
+```
+
+### tests/test_repositories.py
+
+**Peran:** File test untuk memverifikasi perilaku modul.
+
+```python
+import pytest
+from features.profil_wilayah.repositories import (
+    DusunRepository,
+    PerangkatRepository,
+    ProfilDesaRepository,
+)
+
+pytestmark = pytest.mark.django_db
+
+class TestProfilWilayahRepositories:
+    def test_profil_desa_repo_harus_implementasi_singleton(self):
+        """Memastikan get_profil() selalu mengembalikan record dengan ID=1 (YAGNI)."""
+        repo = ProfilDesaRepository()
+        
+        profil_1 = repo.get_profil()
+        profil_2 = repo.get_profil()
+        
+        assert profil_1.id == 1
+        assert profil_1.id == profil_2.id
+
+    def test_profil_desa_repo_harus_bisa_update_data(self):
+        repo = ProfilDesaRepository()
+        updated_profil = repo.update_profil(visi="Visi Baru", misi="Misi Baru", sejarah="Sejarah Baru")
+        
+        assert updated_profil.visi == "Visi Baru"
+        
+        # Pastikan data tersimpan di DB
+        db_profil = repo.get_profil()
+        assert db_profil.visi == "Visi Baru"
+
+    def test_perangkat_repo_hanya_kembalikan_yang_dipublish(self, django_user_model):
+        user = django_user_model.objects.create(nik="123", nama_lengkap="Warga")
+        repo = PerangkatRepository()
+        
+        repo.create(user_id=user.id, jabatan="Kaur", is_published=True)
+        repo.create(user_id=user.id, jabatan="Kasi", is_published=False)
+        
+        hasil = repo.list_published()
+        assert hasil.count() == 1
+        assert hasil.first().jabatan == "Kaur"
+```
+
+### tests/test_services.py
+
+**Peran:** File test untuk memverifikasi perilaku modul.
+
+```python
+import pytest
+from features.profil_wilayah.services import (
+    DusunService,
+    ProfilWilayahAccessError,
+)
+
+class TestDusunService:
+    @pytest.fixture
+    def mock_repo(self, mocker):
+        return mocker.Mock()
+
+    @pytest.fixture
+    def service(self, mock_repo):
+        # Menerapkan Dependency Inversion dengan meng-inject Mock Repository
+        return DusunService(repo=mock_repo)
+
+    @pytest.fixture
+    def mock_admin(self, mocker):
+        user = mocker.Mock(id=1, role="ADMIN")
+        return user
+
+    def test_tambah_dusun_harus_sukses_untuk_admin(self, service, mock_admin, mock_repo, mocker):
+        # Arrange
+        mocker.patch("features.profil_wilayah.services.can_manage_data_wilayah", return_value=True)
+        mock_audit = mocker.patch("features.profil_wilayah.services.audit_event")
+        mock_repo.create.return_value = mocker.Mock(id=10)
+
+        # Act
+        hasil = service.tambah_dusun(mock_admin, nama_dusun="Mawar", kepala_dusun="Budi")
+
+        # Assert
+        assert hasil.id == 10
+        mock_repo.create.assert_called_once_with("Mawar", "Budi")
+        mock_audit.assert_called_once_with("DUSUN_CREATED", actor_id=1, target_id=10)
+
+    def test_tambah_dusun_harus_ditolak_jika_tidak_punya_izin(self, service, mock_admin, mocker):
+        mocker.patch("features.profil_wilayah.services.can_manage_data_wilayah", return_value=False)
+
+        with pytest.raises(ProfilWilayahAccessError, match="Akses ditolak"):
+            service.tambah_dusun(mock_admin, nama_dusun="Mawar", kepala_dusun="Budi")
 ```
 
 ## Konteks Migrasi

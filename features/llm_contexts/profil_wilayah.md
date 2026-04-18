@@ -1,6 +1,6 @@
 # Feature Context: profil_wilayah
 
-Generated at: 2026-04-17T14:51:50
+Generated at: 2026-04-18T23:18:05
 Feature path: `D:\Kuliah\joki\radit\desa\backend\features\profil_wilayah`
 
 Dokumen ini berisi layer penting untuk konteks LLM.
@@ -14,8 +14,8 @@ Folder `tests`, `migrations`, `logs`, dan file non-konteks tidak disertakan.
 - `repositories.py`
 - `services.py`
 - `permissions.py`
-- `views.py`
-- `urls.py`
+- `schemas.py`
+- `api.py`
 
 ---
 
@@ -208,10 +208,17 @@ class ProfilDesaService:
     def __init__(self, repo: ProfilDesaRepository = None):
         self.repo = repo or ProfilDesaRepository()
 
+    # features/profil_wilayah/services.py
+# Tidak perlu lagi mengimpor sanitize_html atau bleach di sini!
+
     def perbarui_profil(self, actor, visi: str, misi: str, sejarah: str):
         if not can_manage_data_wilayah(actor):
             raise ProfilWilayahAccessError("Akses ditolak.")
-        validate_profil_desa(visi, misi, sejarah)
+            
+        # domain validation tetap berjalan
+        validate_profil_desa(visi, misi, sejarah) 
+        
+        # Data visi, misi, sejarah sudah otomatis ter-sanitasi oleh Pydantic Schema!
         profil = self.repo.update_profil(visi, misi, sejarah)
         audit_event("PROFIL_DESA_UPDATED", actor_id=actor.id)
         return profil
@@ -241,77 +248,147 @@ def can_view_data_publik(actor) -> bool:
 
 ---
 
-## File: `views.py`
+## File: `schemas.py`
 
 ```python
-# features/profil_wilayah/views.py
+# features/profil_wilayah/schemas.py
 
-import json
-from django.http import JsonResponse
-from django.views.decorators.http import require_GET, require_POST
-from features.profil_wilayah.services import DusunService, PerangkatService, ProfilDesaService
-from toolbox.security.auth import is_active_user
+from typing import List, Optional
+from ninja import Schema, Field
+from toolbox.security.sanitizers import SafeHTMLString, SafePlainTextString
 
-dusun_service = DusunService()
-perangkat_service = PerangkatService()
-profil_service = ProfilDesaService()
+# --- INPUT SCHEMAS ---
 
-@require_GET
-def profil_publik_view(request):
-    """Menampilkan Visi, Misi, Sejarah dan Perangkat Desa yang aktif."""
-    profil = profil_service.get_profil()
-    perangkat = perangkat_service.get_perangkat_publik()
-    
-    return JsonResponse({
-        "profil": {"visi": profil.visi, "misi": profil.misi, "sejarah": profil.sejarah},
-        "perangkat": [{"jabatan": p.jabatan, "nama": p.user.nama_lengkap, "foto_url": p.foto.url if p.foto else None} for p in perangkat]
-    }, status=200)
+class TambahDusunIn(Schema):
+    nama_dusun: SafePlainTextString
+    kepala_dusun: SafePlainTextString
 
-@require_POST
-def tambah_dusun_view(request):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor): return JsonResponse({"detail": "Unauthorized"}, status=401)
-    
-    data = json.loads(request.body.decode("utf-8") or "{}")
-    try:
-        dusun = dusun_service.tambah_dusun(actor, data.get("nama_dusun"), data.get("kepala_dusun"))
-        return JsonResponse({"detail": "Dusun berhasil ditambahkan", "id": dusun.id}, status=201)
-    except Exception as e:
-        return JsonResponse({"detail": str(e)}, status=400)
+class TambahPerangkatIn(Schema):
+    """Untuk form-data saat upload foto perangkat"""
+    user_id: str
+    jabatan: SafePlainTextString
+    is_published: bool = False
 
-@require_POST
-def tambah_perangkat_view(request):
-    actor = getattr(request, "user", None)
-    if not is_active_user(actor): return JsonResponse({"detail": "Unauthorized"}, status=401)
-    
-    try:
-        perangkat = perangkat_service.tambah_perangkat(
-            actor=actor,
-            user_id=request.POST.get("user_id"),
-            jabatan=request.POST.get("jabatan"),
-            is_published=request.POST.get("is_published", "false").lower() == "true",
-            foto=request.FILES.get("foto")
-        )
-        return JsonResponse({"detail": "Perangkat berhasil ditambahkan", "id": perangkat.id}, status=201)
-    except Exception as e:
-        return JsonResponse({"detail": str(e)}, status=400)
+class UpdateProfilDesaIn(Schema):
+    """Asumsi menggunakan Rich Text Editor untuk Visi, Misi, Sejarah"""
+    visi: SafeHTMLString
+    misi: SafeHTMLString
+    sejarah: SafeHTMLString
+
+
+# --- OUTPUT SCHEMAS ---
+
+class DusunOut(Schema):
+    id: int
+    nama_dusun: str
+    kepala_dusun: str
+
+class PerangkatPublikOut(Schema):
+    """YAGNI: Publik hanya butuh nama, jabatan, dan foto"""
+    jabatan: str
+    nama: str = Field(..., alias="user.nama_lengkap")
+    foto_url: Optional[str] = None
+
+    @staticmethod
+    def resolve_foto_url(obj):
+        return obj.foto.url if obj.foto else None
+
+class ProfilDesaOut(Schema):
+    visi: str
+    misi: str
+    sejarah: str
+
+class ProfilPublikAggregatedOut(Schema):
+    """KISS: Menggabungkan Profil dan Perangkat dalam 1 endpoint untuk efisiensi Frontend"""
+    profil: ProfilDesaOut
+    perangkat: List[PerangkatPublikOut]
 ```
 
 ---
 
-## File: `urls.py`
+## File: `api.py`
 
 ```python
-# features/profil_wilayah/urls.py
+# features/profil_wilayah/api.py
 
-from django.urls import path
-from features.profil_wilayah.views import profil_publik_view, tambah_dusun_view, tambah_perangkat_view
+from ninja import Router, Form, File
+from ninja.files import UploadedFile
 
-urlpatterns = [
-    path("profil/publik/", profil_publik_view, name="profil-publik"),
-    path("profil/admin/dusun/", tambah_dusun_view, name="admin-dusun-tambah"),
-    path("profil/admin/perangkat/", tambah_perangkat_view, name="admin-perangkat-tambah"),
-]
+from .schemas import (
+    TambahDusunIn, 
+    TambahPerangkatIn, 
+    UpdateProfilDesaIn,
+    DusunOut, 
+    ProfilPublikAggregatedOut,
+    ProfilDesaOut
+)
+from .services import DusunService, PerangkatService, ProfilDesaService
+from toolbox.api.auth import AuthAdminOnly
+
+router = Router(tags=["Profil Wilayah"])
+
+# Dependency Inversion Principle (DIP)
+dusun_service = DusunService()
+perangkat_service = PerangkatService()
+profil_service = ProfilDesaService()
+
+
+@router.get("/publik", response=ProfilPublikAggregatedOut)
+def profil_publik_api(request):
+    """
+    Endpoint terbuka tanpa Auth. 
+    Menggabungkan Visi/Misi dan list Perangkat Desa dalam satu panggilan.
+    """
+    profil = profil_service.get_profil()
+    perangkat = perangkat_service.get_perangkat_publik()
+    
+    return {
+        "profil": profil,
+        "perangkat": list(perangkat)
+    }
+
+
+@router.post("/admin/dusun", auth=AuthAdminOnly, response={201: DusunOut})
+def tambah_dusun_api(request, payload: TambahDusunIn):
+    """Hanya Admin/Superadmin yang bisa menambah dusun."""
+    dusun = dusun_service.tambah_dusun(
+        actor=request.user, 
+        nama_dusun=payload.nama_dusun, 
+        kepala_dusun=payload.kepala_dusun
+    )
+    return 201, dusun
+
+
+@router.post("/admin/perangkat", auth=AuthAdminOnly, response={201: dict})
+def tambah_perangkat_api(
+    request, 
+    payload: Form[TambahPerangkatIn], 
+    foto: File[UploadedFile] = None
+):
+    """Menambah data perangkat desa beserta fotonya."""
+    perangkat = perangkat_service.tambah_perangkat(
+        actor=request.user,
+        user_id=payload.user_id,
+        jabatan=payload.jabatan,
+        is_published=payload.is_published,
+        foto=foto
+    )
+    return 201, {"detail": "Perangkat berhasil ditambahkan", "id": perangkat.id}
+
+
+@router.put("/admin/profil", auth=AuthAdminOnly, response=ProfilDesaOut)
+def update_profil_desa_api(request, payload: UpdateProfilDesaIn):
+    """
+    Update data Visi, Misi, dan Sejarah (Singleton).
+    Input HTML aman karena menggunakan SafeHTMLString di schema.
+    """
+    profil = profil_service.perbarui_profil(
+        actor=request.user,
+        visi=payload.visi,
+        misi=payload.misi,
+        sejarah=payload.sejarah
+    )
+    return profil
 ```
 
 ---
