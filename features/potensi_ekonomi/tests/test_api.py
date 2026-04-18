@@ -1,5 +1,6 @@
 import pytest
 from django.urls import reverse
+import json
 from features.potensi_ekonomi.models import BumdesUnitUsaha
 
 @pytest.mark.django_db
@@ -57,3 +58,50 @@ class TestPotensiEkonomiAPI:
         
         # 403 Forbidden karena middleware AuthAdminOnly menolak akses
         assert response.status_code == 403
+
+    def test_named_route_katalog_bisa_diakses_anonim(self, client):
+        BumdesUnitUsaha.objects.create(
+            nama_usaha="Pasar Desa",
+            kategori="JASA",
+            deskripsi="Layanan pasar desa",
+            is_published=True,
+        )
+
+        response = client.get(reverse("ekonomi-katalog"))
+
+        assert response.status_code == 200
+        assert len(response.json()["data"]) == 1
+
+    def test_admin_bisa_update_dan_delete_unit_via_named_route(self, client, admin_user):
+        client.force_login(admin_user)
+        unit = BumdesUnitUsaha.objects.create(
+            nama_usaha="Wisata Lama",
+            kategori="WISATA",
+            deskripsi="Deskripsi lama",
+            is_published=False,
+        )
+
+        update_response = client.put(
+            reverse("ekonomi-admin-update", kwargs={"unit_id": unit.id}),
+            data=json.dumps(
+                {
+                    "nama_usaha": "Wisata Baru",
+                    "kategori": "WISATA",
+                    "deskripsi": "<p>Deskripsi baru</p>",
+                    "fasilitas": "<p>Gazebo</p>",
+                    "kontak_wa": "08123456789",
+                    "harga_tiket": 15000,
+                    "is_published": True,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert update_response.status_code == 200
+        unit.refresh_from_db()
+        assert unit.nama_usaha == "Wisata Baru"
+        assert unit.is_published is True
+
+        delete_response = client.delete(reverse("ekonomi-admin-delete", kwargs={"unit_id": unit.id}))
+        assert delete_response.status_code == 200
+        assert BumdesUnitUsaha.objects.filter(id=unit.id).exists() is False

@@ -20,6 +20,16 @@ class BuatUnitUsahaIn(Schema):
     harga_tiket: Optional[float] = None
     is_published: bool = False
 
+
+class UpdateUnitUsahaIn(Schema):
+    nama_usaha: SafePlainTextString
+    kategori: str
+    deskripsi: SafeHTMLString
+    fasilitas: Optional[SafeHTMLString] = None
+    kontak_wa: Optional[str] = None
+    harga_tiket: Optional[float] = None
+    is_published: bool = False
+
 # --- OUTPUT SCHEMAS ---
 
 class KatalogPublikOut(Schema):

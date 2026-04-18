@@ -1,6 +1,7 @@
 import pytest
 import json
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 
 User = get_user_model()
 
@@ -57,3 +58,51 @@ class TestAuthAPI:
         
         # Tambahkan 400 ke dalam list karena exception handler mengubahnya menjadi Bad Request
         assert response_blocked.status_code in [400, 403, 429]
+
+    def test_superadmin_bisa_buat_admin_dari_named_route(self, client, admin_user):
+        client.force_login(admin_user)
+        response = client.post(
+            reverse("auth-users-admin-create"),
+            data=json.dumps(
+                {
+                    "nik": "1111222233334444",
+                    "nama_lengkap": "Admin Desa Baru",
+                    "password": "password123",
+                    "role": "ADMIN",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201
+        assert response.json()["role"] == "ADMIN"
+
+    def test_admin_bisa_aktivasi_dan_nonaktifkan_akun_via_api(self, client, admin_user, warga_user):
+        client.force_login(admin_user)
+
+        deactivate_response = client.post(reverse("auth-users-deactivate", kwargs={"user_id": str(warga_user.id)}))
+        assert deactivate_response.status_code == 200
+        assert deactivate_response.json()["is_active"] is False
+
+        activate_response = client.post(reverse("auth-users-activate", kwargs={"user_id": str(warga_user.id)}))
+        assert activate_response.status_code == 200
+        assert activate_response.json()["is_active"] is True
+
+    def test_user_bisa_ganti_password_via_api(self, client, warga_user):
+        client.force_login(warga_user)
+
+        response = client.post(
+            reverse("auth-change-password"),
+            data=json.dumps(
+                {
+                    "current_password": "password123",
+                    "new_password": "password456",
+                    "confirm_password": "password456",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        warga_user.refresh_from_db()
+        assert warga_user.check_password("password456") is True

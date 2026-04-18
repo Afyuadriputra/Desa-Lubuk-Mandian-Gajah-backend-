@@ -10,6 +10,7 @@ from features.auth_warga.domain import (
     AuthenticationFailedError,
     DuplicateNIKError,
     InvalidRoleError,
+    InvalidPasswordChangeError,
     InactiveAccountError,
     ROLE_ADMIN,
     ROLE_BUMDES,
@@ -18,6 +19,7 @@ from features.auth_warga.domain import (
     ensure_account_is_active,
     normalize_nik,
     validate_nik,
+    validate_password_change,
     validate_role,
 )
 from features.auth_warga.models import CustomUser
@@ -256,4 +258,30 @@ class AuthService:
             actor_id=actor.id,
             target_user_id=updated_user.id,
         )
+        return updated_user
+
+    def change_password(
+        self,
+        actor: CustomUser,
+        current_password: str,
+        new_password: str,
+        confirm_password: str,
+    ) -> CustomUser:
+        validate_password_change(current_password, new_password, confirm_password)
+
+        if not actor.check_password(current_password):
+            raise InvalidPasswordChangeError("Password lama tidak sesuai.")
+
+        updated_user = self.user_repository.update_password(actor, new_password)
+
+        audit_event(
+            action="AUTH_PASSWORD_CHANGED",
+            actor_id=actor.id,
+            actor_role=actor.role,
+            target="users_customuser",
+            target_id=updated_user.id,
+            metadata={},
+        )
+
+        self.logger.info("Password diubah untuk user_id={user_id}", user_id=updated_user.id)
         return updated_user

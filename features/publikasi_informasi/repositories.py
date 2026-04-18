@@ -25,3 +25,12 @@ class PublikasiRepository:
         publikasi.published_at = published_at
         publikasi.save(update_fields=["status", "published_at", "updated_at"])
         return publikasi
+
+    def update_content(self, publikasi: Publikasi, data: dict) -> Publikasi:
+        for field, value in data.items():
+            setattr(publikasi, field, value)
+        publikasi.save(update_fields=[*data.keys(), "updated_at"])
+        return publikasi
+
+    def delete(self, publikasi: Publikasi) -> None:
+        publikasi.delete()

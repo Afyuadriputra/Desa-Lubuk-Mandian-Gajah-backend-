@@ -54,3 +54,8 @@ class UserRepository:
         user.is_active = False
         user.save(update_fields=["is_active", "updated_at"])
         return user
+
+    def update_password(self, user: CustomUser, new_password: str) -> CustomUser:
+        user.set_password(new_password)
+        user.save(update_fields=["password", "updated_at"])
+        return user

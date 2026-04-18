@@ -21,6 +21,13 @@ class UbahStatusIn(Schema):
     status: str
 
 
+class UpdatePublikasiIn(Schema):
+    judul: SafePlainTextString
+    konten_html: SafeHTMLString
+    jenis: str
+    status: str = "DRAFT"
+
+
 # --- OUTPUT SCHEMAS ---
 
 class PublikasiListOut(Schema):

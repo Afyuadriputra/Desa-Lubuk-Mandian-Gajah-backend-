@@ -11,8 +11,16 @@ class PengaduanRepository:
     def get_by_id(self, pengaduan_id) -> LayananPengaduan | None:
         return LayananPengaduan.objects.select_related("pelapor").filter(id=pengaduan_id).first()
 
+    def get_detail_by_id(self, pengaduan_id) -> LayananPengaduan | None:
+        return (
+            LayananPengaduan.objects.select_related("pelapor")
+            .prefetch_related("histori_tindak_lanjut__changed_by")
+            .filter(id=pengaduan_id)
+            .first()
+        )
+
     def list_by_pelapor(self, pelapor_id) -> QuerySet[LayananPengaduan]:
-        return LayananPengaduan.objects.filter(pelapor_id=pelapor_id)
+        return LayananPengaduan.objects.select_related("pelapor").filter(pelapor_id=pelapor_id)
 
     def list_all(self) -> QuerySet[LayananPengaduan]:
         return LayananPengaduan.objects.select_related("pelapor").all()

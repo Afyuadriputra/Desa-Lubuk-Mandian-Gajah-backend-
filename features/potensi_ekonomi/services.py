@@ -11,12 +11,11 @@ from features.potensi_ekonomi.domain import (
 from features.potensi_ekonomi.models import BumdesUnitUsaha
 from features.potensi_ekonomi.permissions import (
     can_manage_data_bumdes,
-    can_view_katalog_publik,
 )
 from features.potensi_ekonomi.repositories import UnitUsahaRepository
 from toolbox.logging import audit_event, get_logger
 from toolbox.security.upload_validators import validate_image_upload
-# Import sanitize_rich_text_content dihapus karena sudah ditangani otomatis oleh Schema Ninja.
+from toolbox.security.sanitizers import sanitize_html, sanitize_plain_text
 
 
 class PermissionDeniedError(Exception):
@@ -38,9 +37,9 @@ class PotensiEkonomiService:
         if not can_manage_data_bumdes(actor):
             raise PermissionDeniedError("Anda tidak memiliki izin mengelola data BUMDes.")
 
-        # Validasi domain (business rules) tetap berjalan
-        validate_kategori(data.get("kategori"))
-        validate_input_usaha(data.get("nama_usaha"), data.get("kontak_wa", ""))
+        normalized_data = self._normalize_input_data(data)
+        validate_kategori(normalized_data.get("kategori"))
+        validate_input_usaha(normalized_data.get("nama_usaha"), normalized_data.get("kontak_wa", ""))
 
         if foto:
             try:
@@ -48,17 +47,7 @@ class PotensiEkonomiService:
             except ValidationError as e:
                 raise FileUploadError(str(e.message))
 
-        # KISS & DRY: Dictionary 'data' dari API Pydantic/Ninja sudah terjamin 
-        # tipe datanya (boolean, float) dan bersih dari XSS (SafeHTMLString).
-        create_data = {
-            "nama_usaha": data.get("nama_usaha"),
-            "kategori": data.get("kategori"),
-            "deskripsi": data.get("deskripsi"),
-            "fasilitas": data.get("fasilitas"),
-            "kontak_wa": data.get("kontak_wa"),
-            "harga_tiket": data.get("harga_tiket"),
-            "is_published": data.get("is_published", False),
-        }
+        create_data = normalized_data
         
         if foto:
             create_data["foto_utama"] = foto
@@ -76,10 +65,8 @@ class PotensiEkonomiService:
 
         return unit
 
-    def get_katalog_publik(self, actor) -> QuerySet[BumdesUnitUsaha]:
+    def get_katalog_publik(self) -> QuerySet[BumdesUnitUsaha]:
         """Menampilkan data untuk warga (hanya yang is_published=True)."""
-        if not can_view_katalog_publik(actor):
-            raise PermissionDeniedError("Akses ditolak.")
         return self.repository.list_published()
 
     def get_semua_unit_admin(self, actor) -> QuerySet[BumdesUnitUsaha]:
@@ -98,3 +85,63 @@ class PotensiEkonomiService:
              raise PermissionDeniedError("Data ini belum tersedia untuk publik.")
 
         return unit
+
+    def ubah_unit_usaha(self, actor, unit_id: int, data: dict, foto=None) -> BumdesUnitUsaha:
+        if not can_manage_data_bumdes(actor):
+            raise PermissionDeniedError("Anda tidak memiliki izin mengelola data BUMDes.")
+
+        unit = self.repository.get_by_id(unit_id)
+        if not unit:
+            raise UnitUsahaNotFoundError("Data unit usaha tidak ditemukan.")
+
+        normalized_data = self._normalize_input_data(data)
+        validate_kategori(normalized_data.get("kategori"))
+        validate_input_usaha(normalized_data.get("nama_usaha"), normalized_data.get("kontak_wa", ""))
+
+        if foto:
+            try:
+                validate_image_upload(foto)
+            except ValidationError as e:
+                raise FileUploadError(str(e.message))
+            normalized_data["foto_utama"] = foto
+
+        updated = self.repository.update_unit(unit, normalized_data)
+        audit_event(
+            action="BUMDES_UNIT_UPDATED",
+            actor_id=actor.id,
+            actor_role=actor.role,
+            target="bumdes_unit_usaha",
+            target_id=updated.id,
+            metadata={"nama_usaha": updated.nama_usaha},
+        )
+        return updated
+
+    def hapus_unit_usaha(self, actor, unit_id: int) -> None:
+        if not can_manage_data_bumdes(actor):
+            raise PermissionDeniedError("Anda tidak memiliki izin mengelola data BUMDes.")
+
+        unit = self.repository.get_by_id(unit_id)
+        if not unit:
+            raise UnitUsahaNotFoundError("Data unit usaha tidak ditemukan.")
+
+        target_id = unit.id
+        self.repository.delete_unit(unit)
+        audit_event(
+            action="BUMDES_UNIT_DELETED",
+            actor_id=actor.id,
+            actor_role=actor.role,
+            target="bumdes_unit_usaha",
+            target_id=target_id,
+            metadata={},
+        )
+
+    def _normalize_input_data(self, data: dict) -> dict:
+        return {
+            "nama_usaha": sanitize_plain_text(data.get("nama_usaha")),
+            "kategori": data.get("kategori"),
+            "deskripsi": sanitize_html(data.get("deskripsi")) or "-",
+            "fasilitas": sanitize_html(data.get("fasilitas")) if data.get("fasilitas") else None,
+            "kontak_wa": data.get("kontak_wa"),
+            "harga_tiket": data.get("harga_tiket"),
+            "is_published": data.get("is_published", False),
+        }

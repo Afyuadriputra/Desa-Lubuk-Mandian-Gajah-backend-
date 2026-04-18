@@ -68,7 +68,7 @@ class PengaduanService:
         return pengaduan
 
     def get_pengaduan_detail(self, actor, pengaduan_id) -> LayananPengaduan:
-        pengaduan = self.repository.get_by_id(pengaduan_id)
+        pengaduan = self.repository.get_detail_by_id(pengaduan_id)
         if not pengaduan:
             raise PengaduanNotFoundError("Data pengaduan tidak ditemukan.")
 
@@ -90,6 +90,7 @@ class PengaduanService:
         if not pengaduan:
             raise PengaduanNotFoundError("Data pengaduan tidak ditemukan.")
 
+        previous_status = pengaduan.status
         validate_status_transition(pengaduan.status, new_status)
         validate_resolution_note(new_status, notes)
 
@@ -106,7 +107,7 @@ class PengaduanService:
             actor_role=actor.role,
             target="layanan_pengaduan",
             target_id=pengaduan.id,
-            metadata={"old_status": pengaduan.status, "new_status": new_status}
+            metadata={"old_status": previous_status, "new_status": new_status}
         )
 
         return updated_pengaduan

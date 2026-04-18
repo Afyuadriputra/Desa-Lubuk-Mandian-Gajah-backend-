@@ -1,5 +1,7 @@
 import pytest
 import json
+from django.core.files.base import ContentFile
+from django.urls import reverse
 from features.layanan_administrasi.models import LayananSurat
 from unittest.mock import patch
 
@@ -31,3 +33,45 @@ class TestSuratAPI:
         
         assert response.status_code == 200
         mock_audit.assert_called_once()
+
+    def test_named_route_detail_mengembalikan_histori(self, client, warga_user):
+        client.force_login(warga_user)
+        surat = LayananSurat.objects.create(
+            pemohon=warga_user,
+            jenis_surat="SKU",
+            keperluan="Keperluan surat untuk modal usaha",
+            status="PENDING",
+        )
+
+        response = client.get(reverse("surat-detail", kwargs={"surat_id": str(surat.id)}))
+
+        assert response.status_code == 200
+        assert response.json()["data"]["id"] == str(surat.id)
+        assert "histori" in response.json()["data"]
+
+    def test_download_pdf_ditolak_jika_surat_belum_done(self, client, warga_user):
+        client.force_login(warga_user)
+        surat = LayananSurat.objects.create(
+            pemohon=warga_user,
+            jenis_surat="SKU",
+            keperluan="Keperluan surat untuk modal usaha",
+            status="PENDING",
+        )
+
+        response = client.get(reverse("surat-download-pdf", kwargs={"surat_id": str(surat.id)}))
+
+        assert response.status_code == 403
+
+    def test_download_pdf_berhasil_jika_surat_done(self, client, warga_user):
+        client.force_login(warga_user)
+        surat = LayananSurat.objects.create(
+            pemohon=warga_user,
+            jenis_surat="SKU",
+            keperluan="Keperluan surat untuk modal usaha",
+            status="DONE",
+        )
+        surat.pdf_file.save("surat-test.pdf", ContentFile(b"%PDF-1.4 test"), save=True)
+
+        response = client.get(reverse("surat-download-pdf", kwargs={"surat_id": str(surat.id)}))
+
+        assert response.status_code == 200

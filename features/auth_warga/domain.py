@@ -45,6 +45,10 @@ class DuplicateNIKError(AuthDomainError):
     """NIK sudah digunakan."""
 
 
+class InvalidPasswordChangeError(AuthDomainError):
+    """Pergantian kata sandi tidak valid."""
+
+
 def normalize_nik(nik: str | None) -> str:
     if nik is None:
         return ""
@@ -72,3 +76,20 @@ def ensure_account_is_active(is_active: bool) -> None:
 
 def is_internal_admin_role(role: str) -> bool:
     return role in INTERNAL_ADMIN_ROLES
+
+
+def validate_password_change(
+    current_password: str | None,
+    new_password: str | None,
+    confirm_password: str | None,
+) -> None:
+    if not current_password:
+        raise InvalidPasswordChangeError("Password lama wajib diisi.")
+    if not new_password:
+        raise InvalidPasswordChangeError("Password baru wajib diisi.")
+    if len(new_password) < 8:
+        raise InvalidPasswordChangeError("Password baru minimal 8 karakter.")
+    if current_password == new_password:
+        raise InvalidPasswordChangeError("Password baru harus berbeda dari password lama.")
+    if new_password != confirm_password:
+        raise InvalidPasswordChangeError("Konfirmasi password baru tidak cocok.")

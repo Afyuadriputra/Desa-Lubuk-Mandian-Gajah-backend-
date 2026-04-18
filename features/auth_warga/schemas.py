@@ -19,3 +19,22 @@ class CreateWargaIn(Schema):
     nama_lengkap: SafePlainTextString
     password: str
     nomor_hp: str = None
+
+
+class CreateAdminIn(Schema):
+    nik: str
+    nama_lengkap: SafePlainTextString
+    password: str
+    role: str
+    nomor_hp: str | None = None
+
+
+class ActivationOut(Schema):
+    id: UUID
+    is_active: bool
+
+
+class ChangePasswordIn(Schema):
+    current_password: str
+    new_password: str
+    confirm_password: str

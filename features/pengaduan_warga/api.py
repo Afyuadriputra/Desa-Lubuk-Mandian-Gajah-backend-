@@ -19,6 +19,10 @@ router = Router(tags=["Pengaduan Warga"])
 pengaduan_service = PengaduanService()
 
 
+def _serialize(schema_cls, obj):
+    return schema_cls.model_validate(obj, from_attributes=True).model_dump(mode="json")
+
+
 @router.post("/buat", auth=AuthActiveUser, response={201: PengaduanListOut})
 def buat_pengaduan_api(
     request, 
@@ -64,3 +68,47 @@ def proses_pengaduan_api(request, pengaduan_id: int, payload: ProsesPengaduanIn)
         notes=payload.notes
     )
     return updated_pengaduan
+
+
+@router.post("/mvp/buat", auth=AuthActiveUser, response={201: dict}, url_name="pengaduan-buat")
+def buat_pengaduan_mvp_api(
+    request,
+    payload: Form[BuatPengaduanIn],
+    foto_bukti: File[UploadedFile] = None,
+):
+    pengaduan = pengaduan_service.buat_pengaduan(
+        actor=request.user,
+        kategori=payload.kategori,
+        judul=payload.judul,
+        deskripsi=payload.deskripsi,
+        foto_bukti=foto_bukti,
+    )
+    return 201, {"data": _serialize(PengaduanListOut, pengaduan)}
+
+
+@router.get("/mvp", auth=AuthActiveUser, response=dict, url_name="pengaduan-list")
+def list_pengaduan_mvp_api(request):
+    pengaduan_list = pengaduan_service.list_pengaduan(request.user)
+    return {"data": [_serialize(PengaduanListOut, item) for item in pengaduan_list]}
+
+
+@router.get("/mvp/{pengaduan_id}", auth=AuthActiveUser, response=dict, url_name="pengaduan-detail")
+def detail_pengaduan_mvp_api(request, pengaduan_id: int):
+    pengaduan = pengaduan_service.get_pengaduan_detail(request.user, pengaduan_id)
+    return {"data": _serialize(PengaduanDetailOut, pengaduan)}
+
+
+@router.post(
+    "/mvp/{pengaduan_id}/proses",
+    auth=AuthAdminOnly,
+    response=dict,
+    url_name="pengaduan-proses",
+)
+def proses_pengaduan_mvp_api(request, pengaduan_id: int, payload: ProsesPengaduanIn):
+    pengaduan = pengaduan_service.proses_pengaduan(
+        actor=request.user,
+        pengaduan_id=pengaduan_id,
+        new_status=payload.status,
+        notes=payload.notes,
+    )
+    return {"data": _serialize(PengaduanListOut, pengaduan)}

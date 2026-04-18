@@ -1,6 +1,7 @@
 # features/layanan_administrasi/services.py
 
 from django.core.files.base import ContentFile
+from django.http import FileResponse
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -69,7 +70,7 @@ class SuratService:
         return surat
 
     def get_surat_detail(self, actor, surat_id) -> LayananSurat:
-        surat = self.repository.get_by_id(surat_id)
+        surat = self.repository.get_detail_by_id(surat_id)
         if not surat:
             raise LayananSuratNotFoundError("Data surat tidak ditemukan.")
 
@@ -77,6 +78,12 @@ class SuratService:
             raise PermissionDeniedError("Anda tidak memiliki akses untuk melihat surat ini.")
 
         return surat
+
+    def download_pdf(self, actor, surat_id):
+        surat = self.get_surat_detail(actor, surat_id)
+        if surat.status != STATUS_DONE or not surat.pdf_file:
+            raise PermissionDeniedError("PDF surat belum tersedia.")
+        return FileResponse(surat.pdf_file.open("rb"), as_attachment=True, filename=surat.pdf_file.name.rsplit("/", 1)[-1])
 
     def list_surat(self, actor) -> QuerySet[LayananSurat]:
         if can_view_all_surat(actor):
@@ -95,12 +102,14 @@ class SuratService:
         if not can_update_surat_status(actor):
             raise PermissionDeniedError("Anda tidak memiliki izin memproses surat.")
 
-        surat = self.repository.get_by_id(surat_id)
+        surat = self.repository.get_detail_by_id(surat_id)
         if not surat:
             raise LayananSuratNotFoundError("Data surat tidak ditemukan.")
 
+        previous_status = surat.status
+
         # Validasi domain rules
-        validate_status_transition(surat.status, new_status)
+        validate_status_transition(previous_status, new_status)
         validate_rejection(new_status, rejection_reason)
 
         # OTOMATISASI NOMOR SURAT
@@ -147,7 +156,7 @@ class SuratService:
             actor_role=actor.role,
             target="layanan_surat",
             target_id=surat.id,
-            metadata={"old_status": surat.status, "new_status": new_status, "pdf_generated": new_status == STATUS_DONE}
+            metadata={"old_status": previous_status, "new_status": new_status, "pdf_generated": new_status == STATUS_DONE}
         )
 
-        return updated_surat
+        return self.repository.get_detail_by_id(surat.id) or updated_surat

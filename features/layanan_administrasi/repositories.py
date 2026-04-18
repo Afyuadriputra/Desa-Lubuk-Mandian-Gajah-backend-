@@ -10,8 +10,16 @@ class SuratRepository:
     def get_by_id(self, surat_id) -> LayananSurat | None:
         return LayananSurat.objects.select_related("pemohon").filter(id=surat_id).first()
 
+    def get_detail_by_id(self, surat_id) -> LayananSurat | None:
+        return (
+            LayananSurat.objects.select_related("pemohon")
+            .prefetch_related("histori_status__changed_by")
+            .filter(id=surat_id)
+            .first()
+        )
+
     def list_by_pemohon(self, pemohon_id) -> QuerySet[LayananSurat]:
-        return LayananSurat.objects.filter(pemohon_id=pemohon_id)
+        return LayananSurat.objects.select_related("pemohon").filter(pemohon_id=pemohon_id)
 
     def list_all(self) -> QuerySet[LayananSurat]:
         return LayananSurat.objects.select_related("pemohon").all()
