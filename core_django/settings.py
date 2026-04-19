@@ -58,6 +58,7 @@ LOCAL_APPS = [
     "features.layanan_administrasi",
     "features.pengaduan_warga",
     "features.potensi_ekonomi",
+    "features.homepage_konten",
     #admin
     "features.dashboard_admin",
 ]

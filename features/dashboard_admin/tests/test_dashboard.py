@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from features.dashboard_admin.domain import DashboardAccessError
 from features.dashboard_admin.services import DashboardService
+from features.homepage_konten.models import HomepageContent, HomepageCultureCard, HomepageStatisticItem
 from features.layanan_administrasi.models import LayananSurat, LayananSuratStatusHistory
 from features.pengaduan_warga.models import LayananPengaduan, LayananPengaduanHistory
 from features.potensi_ekonomi.models import BumdesUnitUsaha
@@ -183,6 +184,31 @@ def dashboard_seed(db, admin_desa, warga_user):
     WilayahPerangkat.objects.create(user=admin_desa, jabatan="Sekretaris Desa", is_published=True)
     WilayahPerangkat.objects.create(user=warga2, jabatan="Staf Pelayanan", is_published=False)
     ProfilDesa.objects.create(visi="Desa maju", misi="Pelayanan cepat", sejarah="")
+    homepage = HomepageContent.objects.create(
+        id=1,
+        tagline="Tagline desa",
+        hero_image="https://example.com/hero.jpg",
+        hero_badge="Badge",
+        village_name="Desa Lubuk Mandian Gajah",
+        hero_description="Deskripsi hero desa yang cukup panjang.",
+        contact_address="Jl. Desa",
+        contact_whatsapp="08123456789",
+        naming_title="Asal nama",
+        footer_description="Footer desa",
+    )
+    HomepageCultureCard.objects.create(
+        homepage=homepage,
+        icon="groups",
+        title="Budaya",
+        description="Deskripsi budaya",
+        sort_order=1,
+    )
+    HomepageStatisticItem.objects.create(
+        homepage=homepage,
+        label="RW",
+        value="4",
+        sort_order=1,
+    )
 
     return {
         "pending_old": pending_old,
@@ -223,6 +249,8 @@ class TestDashboardOverview:
         assert data["summary"]["total_unit_published"] == 1
         assert any(item["severity"] == "critical" for item in data["alerts"])
         assert any(action["key"] == "surat-pending" for action in data["quick_actions"])
+        assert any(action["key"] == "kelola-homepage" for action in data["quick_actions"])
+        assert any(flag["key"] == "homepage-content" for flag in data["health"]["content_flags"])
 
     def test_empty_shape_tetap_konsisten(self, admin_desa):
         data = DashboardService().get_overview(actor=admin_desa)["data"]
@@ -257,7 +285,31 @@ class TestDashboardAnalytics:
         data = DashboardService().get_recent_activity(actor=admin_desa, limit=8)["data"]
         timestamps = [item["created_at"] for item in data]
         assert timestamps == sorted(timestamps, reverse=True)
-        assert {"surat", "pengaduan", "publikasi", "auth"} & {item["module"] for item in data}
+        assert {"surat", "pengaduan", "publikasi", "auth", "homepage"} & {item["module"] for item in data}
+
+
+@pytest.mark.django_db
+class TestDashboardHomepageHealth:
+    def test_content_health_memuat_ringkasan_homepage(self, admin_desa, dashboard_seed):
+        data = DashboardService().get_content_health(actor=admin_desa)["data"]
+
+        assert "homepage_filled_sections" in data["summary"]
+        assert "homepage_empty_sections" in data["summary"]
+        assert "homepage_completeness_score" in data["summary"]
+        assert "homepage_important_missing" in data["summary"]
+        assert "homepage_list_counts" in data["summary"]
+        assert data["summary"]["homepage_list_counts"]["culture_cards"] == 1
+        assert data["summary"]["homepage_list_counts"]["stats_items"] == 1
+        assert data["summary"]["homepage_completeness_score"] > 0
+
+    def test_overview_memuat_alert_homepage_jika_section_penting_kosong(self, admin_desa):
+        data = DashboardService().get_overview(actor=admin_desa)["data"]
+        flags = {item["key"]: item for item in data["health"]["content_flags"]}
+        alerts = {item["key"]: item for item in data["alerts"]}
+
+        assert "homepage-important-missing" in flags
+        assert flags["homepage-important-missing"]["severity"] == "critical"
+        assert "homepage-missing-important" in alerts
 
     def test_surat_analytics_berisi_summary_trend_dan_missing_documents(self, admin_desa, dashboard_seed):
         data = DashboardService().get_surat_analytics(actor=admin_desa, period_days=7)["data"]

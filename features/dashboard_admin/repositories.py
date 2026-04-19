@@ -9,6 +9,16 @@ from django.utils import timezone
 
 from features.layanan_administrasi.models import LayananSurat, LayananSuratStatusHistory
 from features.pengaduan_warga.models import LayananPengaduan, LayananPengaduanHistory
+from features.homepage_konten.models import (
+    HomepageContent,
+    HomepageCultureCard,
+    HomepageFacility,
+    HomepageFooterLink,
+    HomepageGalleryItem,
+    HomepagePotentialOpportunityItem,
+    HomepageRecoveryItem,
+    HomepageStatisticItem,
+)
 from features.potensi_ekonomi.models import BumdesUnitUsaha
 from features.profil_wilayah.models import ProfilDesa, WilayahDusun, WilayahPerangkat
 from features.publikasi_informasi.models import Publikasi
@@ -17,6 +27,60 @@ User = get_user_model()
 
 
 class DashboardRepository:
+    HOMEPAGE_SCALAR_FIELDS = [
+        "tagline",
+        "hero_image",
+        "hero_badge",
+        "brand_logo_url",
+        "brand_logo_alt",
+        "brand_region_label",
+        "village_name",
+        "hero_description",
+        "contact_address",
+        "contact_whatsapp",
+        "contact_map_image",
+        "quick_stats_description",
+        "naming_title",
+        "naming_description",
+        "naming_image",
+        "naming_quote",
+        "culture_title",
+        "culture_description",
+        "sialang_title",
+        "sialang_description",
+        "sialang_image",
+        "sialang_badge",
+        "sialang_stat",
+        "sialang_quote",
+        "peat_title",
+        "peat_description",
+        "peat_quote",
+        "potential_quote",
+        "facilities_title",
+        "footer_description",
+        "footer_copyright",
+    ]
+    HOMEPAGE_IMPORTANT_SCALAR_FIELDS = [
+        "village_name",
+        "tagline",
+        "hero_image",
+        "hero_description",
+        "contact_address",
+        "naming_title",
+        "culture_title",
+        "sialang_title",
+        "peat_title",
+        "facilities_title",
+        "footer_description",
+    ]
+    HOMEPAGE_IMPORTANT_LIST_FIELDS = {
+        "culture_cards": HomepageCultureCard,
+        "facilities": HomepageFacility,
+        "gallery": HomepageGalleryItem,
+        "footer_links": HomepageFooterLink,
+        "stats_items": HomepageStatisticItem,
+    }
+
     def get_summary_metrics(self) -> dict:
         surat_counts = {
             item["status"]: item["total"]
@@ -199,3 +263,84 @@ class DashboardRepository:
             "active": User.objects.filter(is_active=True).count(),
             "inactive": User.objects.filter(is_active=False).count(),
         }
+
+    def get_homepage_content(self) -> HomepageContent:
+        content, _ = HomepageContent.objects.get_or_create(id=1)
+        return content
+
+    def get_homepage_section_status(self) -> dict:
+        content = self.get_homepage_content()
+        scalar_filled = sum(1 for field in self.HOMEPAGE_SCALAR_FIELDS if getattr(content, field, ""))
+        json_filled = sum(
+            1
+            for field in ["peat_images", "footer_badges", "office_hours"]
+            if getattr(content, field, [])
+        )
+        list_counts = {
+            "culture_cards": HomepageCultureCard.objects.filter(homepage=content).count(),
+            "recovery_items": HomepageRecoveryItem.objects.filter(homepage=content).count(),
+            "potential_opportunities": HomepagePotentialOpportunityItem.objects.filter(homepage=content).count(),
+            "facilities": HomepageFacility.objects.filter(homepage=content).count(),
+            "gallery": HomepageGalleryItem.objects.filter(homepage=content).count(),
+            "footer_links": HomepageFooterLink.objects.filter(homepage=content).count(),
+            "stats_items": HomepageStatisticItem.objects.filter(homepage=content).count(),
+        }
+        list_filled = sum(1 for total in list_counts.values() if total > 0)
+        total_sections = len(self.HOMEPAGE_SCALAR_FIELDS) + 3 + len(list_counts)
+        filled_sections = scalar_filled + json_filled + list_filled
+        empty_sections = total_sections - filled_sections
+        important_missing = [
+            field for field in self.HOMEPAGE_IMPORTANT_SCALAR_FIELDS if not getattr(content, field, "")
+        ]
+        important_missing.extend(
+            key for key, model in self.HOMEPAGE_IMPORTANT_LIST_FIELDS.items() if not model.objects.filter(homepage=content).exists()
+        )
+        completeness_score = round((filled_sections / total_sections) * 100) if total_sections else 0
+        return {
+            "filled_sections": filled_sections,
+            "empty_sections": empty_sections,
+            "total_sections": total_sections,
+            "list_counts": list_counts,
+            "important_missing": important_missing,
+            "completeness_score": completeness_score,
+        }
+
+    def get_recent_homepage_activity(self, limit: int) -> list[dict]:
+        content = self.get_homepage_content()
+        items = []
+        if content.updated_at:
+            items.append(
+                {
+                    "module": "homepage",
+                    "action": "updated",
+                    "title": "Konten homepage utama",
+                    "created_at": content.updated_at,
+                    "target_id": str(content.id),
+                    "target_url": "/api/v1/homepage/admin/content",
+                }
+            )
+
+        child_sources = [
+            ("culture card", HomepageCultureCard.objects.filter(homepage=content).order_by("-updated_at")[:limit]),
+            ("recovery item", HomepageRecoveryItem.objects.filter(homepage=content).order_by("-updated_at")[:limit]),
+            ("potential opportunity", HomepagePotentialOpportunityItem.objects.filter(homepage=content).order_by("-updated_at")[:limit]),
+            ("facility", HomepageFacility.objects.filter(homepage=content).order_by("-updated_at")[:limit]),
+            ("gallery item", HomepageGalleryItem.objects.filter(homepage=content).order_by("-updated_at")[:limit]),
+            ("footer link", HomepageFooterLink.objects.filter(homepage=content).order_by("-updated_at")[:limit]),
+            ("stat item", HomepageStatisticItem.objects.filter(homepage=content).order_by("-updated_at")[:limit]),
+        ]
+        for label, queryset in child_sources:
+            for item in queryset:
+                title = getattr(item, "title", None) or getattr(item, "label", None) or getattr(item, "alt", None) or label.title()
+                items.append(
+                    {
+                        "module": "homepage",
+                        "action": "updated",
+                        "title": f"Homepage {label}: {title}",
+                        "created_at": item.updated_at,
+                        "target_id": str(item.id),
+                        "target_url": "/api/v1/homepage/admin/content",
+                    }
+                )
+        items.sort(key=lambda item: item["created_at"], reverse=True)
+        return items[:limit]

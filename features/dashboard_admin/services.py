@@ -121,6 +121,7 @@ class DashboardService:
             items.extend(self._serialize_pengaduan_activity(item) for item in self.repo.get_pengaduan_histories(limit))
             items.extend(self._serialize_publikasi_activity(item) for item in self.repo.get_recent_publications(limit))
             items.extend(self._serialize_user_activity(item) for item in self.repo.get_recent_users(limit))
+            items.extend(self.repo.get_recent_homepage_activity(limit))
             items.sort(key=lambda item: item["created_at"], reverse=True)
             return {
                 "data": items[:limit],
@@ -223,12 +224,22 @@ class DashboardService:
         surat_overdue = len(self.get_surat_queue_stub(aging="overdue"))
         pengaduan_warning = len(self.get_pengaduan_queue_stub(aging="warning"))
         pengaduan_overdue = len(self.get_pengaduan_queue_stub(aging="overdue"))
+        homepage_status = self.repo.get_homepage_section_status()
 
         alerts = []
         if surat_overdue:
             alerts.append(build_alert("Surat melewati SLA perlu diproses segera.", "critical", surat_overdue, "surat-overdue"))
         if pengaduan_overdue:
             alerts.append(build_alert("Pengaduan aktif melewati SLA.", "critical", pengaduan_overdue, "pengaduan-overdue"))
+        if homepage_status["important_missing"]:
+            alerts.append(
+                build_alert(
+                    "Section penting homepage masih kosong.",
+                    "warning",
+                    len(homepage_status["important_missing"]),
+                    "homepage-missing-important",
+                )
+            )
         if surat_warning:
             alerts.append(build_alert("Ada surat mendekati SLA.", "warning", surat_warning, "surat-warning"))
         if pengaduan_warning:
@@ -249,10 +260,12 @@ class DashboardService:
 
     def _build_quick_actions(self) -> list[dict]:
         summary = self.repo.get_summary_metrics()
+        homepage_status = self.repo.get_homepage_section_status()
         return [
             self._quick_action("surat-pending", "Lihat surat pending", "surat-list", "/admin/surat?status=PENDING", summary["surat_pending"], "surat"),
             self._quick_action("pengaduan-aktif", "Lihat pengaduan aktif", "pengaduan-list", "/admin/pengaduan?status=OPEN", summary["pengaduan_aktif"], "pengaduan"),
             self._quick_action("buat-publikasi", "Buat publikasi", "publikasi-admin-buat", "/admin/publikasi/buat", 0, "publikasi"),
+            self._quick_action("kelola-homepage", "Kelola homepage", "homepage-admin-content", "/admin/homepage", homepage_status["empty_sections"], "homepage"),
             self._quick_action("tambah-dusun", "Tambah dusun", "dashboard-overview", "/admin/profil-wilayah/dusun/buat", 0, "profil"),
             self._quick_action("tambah-perangkat", "Tambah perangkat desa", "dashboard-overview", "/admin/profil-wilayah/perangkat/buat", 0, "profil"),
             self._quick_action("kelola-usaha", "Kelola unit usaha", "ekonomi-admin-list", "/admin/potensi-ekonomi", summary["total_unit_published"], "ekonomi"),
@@ -272,6 +285,7 @@ class DashboardService:
         draft_publications = self.repo.get_draft_publications()
         unpublished_units = self.repo.get_unpublished_units()
         unpublished_perangkat = self.repo.get_unpublished_perangkat()
+        homepage_status = self.repo.get_homepage_section_status()
 
         flags = [
             {
@@ -294,6 +308,20 @@ class DashboardService:
                 "total": len(unpublished_perangkat),
                 "severity": "warning" if unpublished_perangkat else "info",
                 "detail": unpublished_perangkat[0].user.nama_lengkap if unpublished_perangkat else None,
+            },
+            {
+                "key": "homepage-content",
+                "label": "Konten homepage belum lengkap",
+                "total": homepage_status["empty_sections"],
+                "severity": "warning" if homepage_status["empty_sections"] else "info",
+                "detail": f"Terisi {homepage_status['filled_sections']}/{homepage_status['total_sections']} section ({homepage_status['completeness_score']}%)",
+            },
+            {
+                "key": "homepage-important-missing",
+                "label": "Section penting homepage kosong",
+                "total": len(homepage_status["important_missing"]),
+                "severity": "critical" if homepage_status["important_missing"] else "info",
+                "detail": ", ".join(homepage_status["important_missing"][:4]) if homepage_status["important_missing"] else None,
             },
         ]
         return flags
@@ -333,12 +361,19 @@ class DashboardService:
         published = self.repo.get_published_publications_count()
         unpublished_units = self.repo.get_unpublished_units()
         unpublished_perangkat = self.repo.get_unpublished_perangkat()
+        homepage_status = self.repo.get_homepage_section_status()
         return {
             "draft_publications": len(drafts),
             "published_publications": published,
             "oldest_draft_title": drafts[0].judul if drafts else None,
             "unpublished_units": len(unpublished_units),
             "unpublished_perangkat": len(unpublished_perangkat),
+            "homepage_filled_sections": homepage_status["filled_sections"],
+            "homepage_empty_sections": homepage_status["empty_sections"],
+            "homepage_total_sections": homepage_status["total_sections"],
+            "homepage_completeness_score": homepage_status["completeness_score"],
+            "homepage_important_missing": homepage_status["important_missing"],
+            "homepage_list_counts": homepage_status["list_counts"],
         }
 
     def _build_master_health_summary(self) -> dict:
