@@ -55,8 +55,16 @@ class DashboardRepository:
         "peat_title",
         "peat_description",
         "peat_quote",
+        "recovery_title",
+        "recovery_description",
+        "potential_title",
         "potential_quote",
+        "potential_opportunities_title",
         "facilities_title",
+        "gallery_title",
+        "gallery_description",
+        "contact_title",
+        "contact_description",
         "footer_description",
         "footer_copyright",
     ]
@@ -70,7 +78,11 @@ class DashboardRepository:
         "culture_title",
         "sialang_title",
         "peat_title",
+        "recovery_title",
+        "potential_title",
         "facilities_title",
+        "gallery_title",
+        "contact_title",
         "footer_description",
     ]
     HOMEPAGE_IMPORTANT_LIST_FIELDS = {

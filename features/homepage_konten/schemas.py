@@ -159,8 +159,16 @@ class HomepageContentUpdateIn(Schema):
     peatDescription: str = Field(..., alias="peatDescription")
     peatQuote: str = Field(..., alias="peatQuote")
     peatImages: list[str] = Field(default_factory=list, alias="peatImages")
+    recoveryTitle: str = Field(..., alias="recoveryTitle")
+    recoveryDescription: str = Field(..., alias="recoveryDescription")
+    potentialTitle: str = Field(..., alias="potentialTitle")
     potentialQuote: str = Field(..., alias="potentialQuote")
+    potentialOpportunitiesTitle: str = Field(..., alias="potentialOpportunitiesTitle")
     facilitiesTitle: str = Field(..., alias="facilitiesTitle")
+    galleryTitle: str = Field(..., alias="galleryTitle")
+    galleryDescription: str = Field(..., alias="galleryDescription")
+    contactTitle: str = Field(..., alias="contactTitle")
+    contactDescription: str = Field(..., alias="contactDescription")
     footerDescription: str = Field(..., alias="footerDescription")
     footerBadges: list[str] = Field(default_factory=list, alias="footerBadges")
     footerCopyright: str = Field(..., alias="footerCopyright")
@@ -199,13 +207,21 @@ class HomepageDataOut(Schema):
     peatDescription: str
     peatQuote: str
     peatImages: list[str]
+    recoveryTitle: str
+    recoveryDescription: str
     recoveryItems: list[HomepageRecoveryItemOut]
+    potentialTitle: str
     potentials: list[HomepagePotentialOut]
     potentialQuote: str
+    potentialOpportunitiesTitle: str
     potentialOpportunityItems: list[HomepagePotentialOpportunityItemOut]
     facilitiesTitle: str
     facilities: list[HomepageFacilityOut]
+    galleryTitle: str
+    galleryDescription: str
     gallery: list[HomepageGalleryItemOut]
+    contactTitle: str
+    contactDescription: str
     footerLinks: list[HomepageFooterLinkOut]
     footerDescription: str
     officeHours: list[HomepageOfficeHourOut]

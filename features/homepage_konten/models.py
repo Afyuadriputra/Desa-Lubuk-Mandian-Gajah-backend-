@@ -35,8 +35,18 @@ class HomepageContent(models.Model):
     peat_quote = models.TextField(blank=True, default="")
     peat_images = models.JSONField(default=list, blank=True)
 
+    recovery_title = models.CharField(max_length=255, blank=True, default="")
+    recovery_description = models.TextField(blank=True, default="")
+
+    potential_title = models.CharField(max_length=255, blank=True, default="")
     potential_quote = models.TextField(blank=True, default="")
+    potential_opportunities_title = models.CharField(max_length=255, blank=True, default="")
+
     facilities_title = models.CharField(max_length=255, blank=True, default="")
+    gallery_title = models.CharField(max_length=255, blank=True, default="")
+    gallery_description = models.TextField(blank=True, default="")
+    contact_title = models.CharField(max_length=255, blank=True, default="")
+    contact_description = models.TextField(blank=True, default="")
 
     footer_description = models.TextField(blank=True, default="")
     footer_badges = models.JSONField(default=list, blank=True)
