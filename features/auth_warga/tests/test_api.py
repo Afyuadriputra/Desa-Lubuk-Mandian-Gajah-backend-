@@ -77,6 +77,34 @@ class TestAuthAPI:
         assert response.status_code == 201
         assert response.json()["role"] == "ADMIN"
 
+    def test_admin_bisa_list_dan_search_user_via_api(self, client, admin_user):
+        client.force_login(admin_user)
+        User.objects.create_user(
+            nik="9999888877776666",
+            password="password123",
+            nama_lengkap="Warga Cari",
+            nomor_hp="081234567890",
+            role="WARGA",
+        )
+
+        response = client.get(
+            reverse("auth-users-list"),
+            {"q": "Cari", "role": "WARGA", "is_active": "true"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 1
+        assert any(item["nama_lengkap"] == "Warga Cari" for item in data)
+        assert all(item["role"] == "WARGA" for item in data)
+
+    def test_warga_tidak_bisa_list_user_via_api(self, client, warga_user):
+        client.force_login(warga_user)
+
+        response = client.get(reverse("auth-users-list"))
+
+        assert response.status_code in [401, 403]
+
     def test_admin_bisa_aktivasi_dan_nonaktifkan_akun_via_api(self, client, admin_user, warga_user):
         client.force_login(admin_user)
 

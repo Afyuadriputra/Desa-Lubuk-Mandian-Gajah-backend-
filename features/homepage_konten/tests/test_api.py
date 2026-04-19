@@ -1,7 +1,11 @@
 import json
+from pathlib import Path
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.urls import reverse
+from django.test import override_settings
 
 from features.homepage_konten.models import (
     HomepageContent,
@@ -218,6 +222,37 @@ class TestHomepageKontenAPI:
         assert payload["potentials"] == [{"title": "Kebun Karet", "image": ""}]
         assert [item["title"] for item in payload["cultureCards"]] == ["Kartu 1", "Kartu 2"]
 
+    @override_settings(
+        BACKEND_PUBLIC_BASE_URL="http://127.0.0.1:8000",
+        MEDIA_ROOT=Path(__file__).resolve().parent / "test_media",
+    )
+    def test_public_homepage_mengembalikan_absolute_media_url_untuk_potentials(
+        self, client
+    ):
+        image_file = SimpleUploadedFile(
+            "potensi.png",
+            (
+                b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+                b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\x0cIDATx\x9cc\xf8"
+                b"\xff\xff?\x00\x05\xfe\x02\xfeA\xd9\x8f\x88\x00\x00\x00\x00IEND\xaeB`\x82"
+            ),
+            content_type="image/png",
+        )
+        BumdesUnitUsaha.objects.create(
+            nama_usaha="Madu Hutan",
+            kategori="JASA",
+            deskripsi="Potensi desa",
+            is_published=True,
+            foto_utama=image_file,
+        )
+
+        response = client.get(reverse("homepage-public"))
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["potentials"][0]["title"] == "Madu Hutan"
+        assert payload["potentials"][0]["image"].startswith("http://127.0.0.1:8000/media/bumdes/")
+
     def test_admin_bisa_update_content_dan_input_disanitasi(self, client, admin_user):
         client.force_login(admin_user)
         payload = _homepage_content_payload()
@@ -258,6 +293,7 @@ class TestHomepageKontenAPI:
             content_type="application/json",
         )
         assert create_response.status_code == 201
+
         item_id = create_response.json()["data"]["id"]
 
         update_payload = {
@@ -387,3 +423,26 @@ class TestHomepageKontenAPI:
         assert len(payload["facilities"]) == 1
         assert len(payload["gallery"]) == 1
         assert len(payload["footerLinks"]) == 1
+
+
+@pytest.mark.django_db
+@override_settings(
+    BACKEND_PUBLIC_BASE_URL="http://127.0.0.1:8000",
+    MEDIA_ROOT=Path(__file__).resolve().parent / "test_media_seed",
+)
+def test_command_seed_homepage_dummy_mengisi_data_dan_relasi():
+    call_command("seed_homepage_dummy", "--reset")
+
+    content = HomepageContent.objects.get(id=1)
+    assert content.village_name == "Desa Segamai"
+    assert content.tagline
+    assert HomepageCultureCard.objects.filter(homepage=content).count() >= 3
+    assert HomepageRecoveryItem.objects.filter(homepage=content).count() >= 3
+    assert HomepagePotentialOpportunityItem.objects.filter(homepage=content).count() >= 3
+    assert HomepageFacility.objects.filter(homepage=content).count() >= 4
+    assert HomepageGalleryItem.objects.filter(homepage=content).count() >= 4
+    assert HomepageFooterLink.objects.filter(homepage=content).count() >= 4
+    assert HomepageStatisticItem.objects.filter(homepage=content).count() >= 6
+    assert WilayahDusun.objects.count() >= 4
+    assert BumdesUnitUsaha.objects.filter(is_published=True).count() >= 5
+    assert BumdesUnitUsaha.objects.filter(foto_utama__isnull=False).count() >= 5

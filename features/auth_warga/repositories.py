@@ -1,6 +1,6 @@
 # features/auth_warga/repositories.py
 
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from features.auth_warga.models import CustomUser
 
@@ -20,6 +20,30 @@ class UserRepository:
 
     def list_by_role(self, role: str) -> QuerySet[CustomUser]:
         return CustomUser.objects.filter(role=role)
+
+    def list_users(
+        self,
+        q: str | None = None,
+        role: str | None = None,
+        is_active: bool | None = None,
+    ) -> QuerySet[CustomUser]:
+        queryset = CustomUser.objects.all()
+
+        if q:
+            search = q.strip()
+            queryset = queryset.filter(
+                Q(nik__icontains=search)
+                | Q(nama_lengkap__icontains=search)
+                | Q(nomor_hp__icontains=search)
+            )
+
+        if role:
+            queryset = queryset.filter(role=role)
+
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active)
+
+        return queryset.order_by("-created_at")
 
     def create_user(
         self,

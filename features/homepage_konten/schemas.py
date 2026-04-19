@@ -230,5 +230,6 @@ class HomepageDataOut(Schema):
 
 
 class HomepageAdminContentOut(HomepageDataOut):
+    statsItems: list[HomepageStatItemOut] = Field(..., alias="statsItems")
     contactAddressSource: str = Field(..., alias="contactAddressSource")
     villageNameSource: str = Field(..., alias="villageNameSource")

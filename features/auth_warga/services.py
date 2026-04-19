@@ -28,6 +28,7 @@ from features.auth_warga.permissions import (
     can_create_admin_user,
     can_create_warga_user,
     can_deactivate_user,
+    can_list_users,
 )
 from features.auth_warga.repositories import UserRepository
 from toolbox.logging import audit_event, get_logger
@@ -157,6 +158,24 @@ class AuthService:
         )
 
         return created_user
+
+    def list_users(
+        self,
+        actor: CustomUser,
+        q: str | None = None,
+        role: str | None = None,
+        is_active: bool | None = None,
+    ) -> list[CustomUser]:
+        if not can_list_users(actor):
+            raise PermissionDeniedError("Anda tidak memiliki izin untuk melihat daftar akun.")
+
+        return list(
+            self.user_repository.list_users(
+                q=q,
+                role=role,
+                is_active=is_active,
+            )
+        )
 
     def create_admin_account(
         self,

@@ -44,3 +44,7 @@ def can_create_admin_user(actor) -> bool:
 
 def can_create_warga_user(actor) -> bool:
     return can_manage_warga_accounts(actor)
+
+
+def can_list_users(actor) -> bool:
+    return can_manage_warga_accounts(actor)

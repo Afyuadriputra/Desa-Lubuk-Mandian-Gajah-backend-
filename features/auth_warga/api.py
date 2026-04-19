@@ -1,12 +1,13 @@
 # features/auth_warga/api.py
 from django.contrib.auth import login, logout
-from ninja import Router
+from ninja import Query, Router
 from .schemas import (
     ActivationOut,
     ChangePasswordIn,
     CreateAdminIn,
     CreateWargaIn,
     LoginIn,
+    UserListQueryIn,
     UserOut,
 )
 from .services import AuthService
@@ -29,6 +30,21 @@ def logout_api(request):
 @router.get("/me", auth=AuthActiveUser, response=UserOut, url_name="auth-me")
 def me_api(request):
     return request.user
+
+
+@router.get(
+    "/users",
+    auth=AuthAdminOnly,
+    response=list[UserOut],
+    url_name="auth-users-list",
+)
+def list_users_api(request, filters: UserListQueryIn = Query(...)):
+    return auth_service.list_users(
+        actor=request.user,
+        q=filters.q,
+        role=filters.role,
+        is_active=filters.is_active,
+    )
 
 @router.post(
     "/users/warga/create",

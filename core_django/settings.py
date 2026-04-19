@@ -49,6 +49,7 @@ THIRD_PARTY_APPS = [
     "ninja",
     "axes",
     "auditlog",
+    "corsheaders",
 ]
 
 LOCAL_APPS = [
@@ -70,6 +71,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 # Middleware
 # =========================
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -179,6 +181,7 @@ if (BASE_DIR / "static").exists():
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+BACKEND_PUBLIC_BASE_URL = os.getenv("BACKEND_PUBLIC_BASE_URL", "http://127.0.0.1:8000")
 
 
 # =========================
@@ -224,11 +227,23 @@ APPEND_SLASH = True
 # =========================
 # Security Defaults
 # =========================
-CSRF_TRUSTED_ORIGINS = []
+DISABLE_CSRF = os.getenv("DJANGO_DISABLE_CSRF", "False").lower() == "true"
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = False
 X_FRAME_OPTIONS = "DENY"
 
+CORS_ALLOW_ALL_ORIGINS = os.getenv("CORS_ALLOW_ALL_ORIGINS", "False").lower() == "true"
+if not CORS_ALLOW_ALL_ORIGINS:
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+CORS_ALLOW_CREDENTIALS = True
 
 # =========================
 # Storage (S3-compatible)

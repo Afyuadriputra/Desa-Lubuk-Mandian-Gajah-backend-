@@ -1,3 +1,4 @@
+from django.conf import settings
 from ninja import NinjaAPI
 from toolbox.api.exceptions import register_exception_handlers
 
@@ -14,7 +15,8 @@ from features.publikasi_informasi.api import router as publikasi_router
 api = NinjaAPI(
     title="Portal Desa Mandian Gajah API",
     version="1.2.0",
-    description="API terintegrasi untuk layanan administrasi dan informasi desa."
+    description="API terintegrasi untuk layanan administrasi dan informasi desa.",
+    csrf=not settings.DISABLE_CSRF
 )
 
 # Aktifkan penanganan error global dari toolbox

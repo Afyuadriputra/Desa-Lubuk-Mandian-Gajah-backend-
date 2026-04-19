@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from features.homepage_konten.domain import (
     HomepageKontenAccessError,
     HomepageKontenNotFoundError,
@@ -90,7 +92,7 @@ class HomepageKontenService:
             "potentials": [
                 {
                     "title": item.nama_usaha,
-                    "image": item.foto_utama.url if item.foto_utama else "",
+                    "image": self._build_public_media_url(item.foto_utama.url) if item.foto_utama else "",
                 }
                 for item in potentials
             ],
@@ -115,6 +117,7 @@ class HomepageKontenService:
         self._ensure_can_manage(actor)
         data = self.get_public_homepage()
         content = self.repo.get_singleton()
+        data["statsItems"] = self._serialize_items("stats_items", content)
         data["contactAddressSource"] = "homepage_konten" if content.contact_address else "fallback"
         data["villageNameSource"] = "homepage_konten" if content.village_name else "fallback"
         return data
@@ -200,6 +203,17 @@ class HomepageKontenService:
     def _ensure_can_manage(self, actor) -> None:
         if not can_manage_homepage_content(actor):
             raise HomepageKontenAccessError("Anda tidak memiliki izin mengelola konten homepage.")
+
+    def _build_public_media_url(self, url: str) -> str:
+        if not url:
+            return ""
+        if url.startswith(("http://", "https://")):
+            return url
+
+        base_url = getattr(settings, "BACKEND_PUBLIC_BASE_URL", "").rstrip("/")
+        if base_url and url.startswith("/"):
+            return f"{base_url}{url}"
+        return url
 
     def _normalize_child_payload(self, key: str, payload: dict) -> dict:
         base = {"sort_order": validate_sort_order(payload.get("sort_order", 0))}
