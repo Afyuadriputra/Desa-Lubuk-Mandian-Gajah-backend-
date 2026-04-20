@@ -68,6 +68,11 @@ def list_perangkat_admin_api(request):
     return list(perangkat_service.get_semua_perangkat())
 
 
+@router.get("/admin/profil", auth=AuthAdminOnly, response=ProfilDesaOut)
+def get_profil_desa_admin_api(request):
+    return profil_service.get_profil()
+
+
 @router.post("/admin/perangkat", auth=AuthAdminOnly, response={201: dict})
 def tambah_perangkat_api(
     request,

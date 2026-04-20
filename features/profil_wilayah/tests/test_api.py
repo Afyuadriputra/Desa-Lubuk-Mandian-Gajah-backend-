@@ -46,6 +46,17 @@ class TestProfilWilayahAPI:
         assert "<script>" not in data["sejarah"]
         assert "Sejarah lama" in data["sejarah"]
 
+    def test_admin_bisa_ambil_detail_profil_desa(self, client, admin_user):
+        client.force_login(admin_user)
+        ProfilDesa.objects.create(id=1, visi="Visi Detail", misi="Misi Detail", sejarah="Sejarah Detail")
+
+        response = client.get("/api/v1/profil-wilayah/admin/profil")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["visi"] == "Visi Detail"
+        assert data["misi"] == "Misi Detail"
+
     def test_admin_bisa_tambah_dusun(self, client, admin_user):
         client.force_login(admin_user)
 

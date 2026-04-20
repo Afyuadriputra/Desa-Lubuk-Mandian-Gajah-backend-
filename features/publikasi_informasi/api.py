@@ -34,6 +34,11 @@ def list_publikasi_publik_api(request, jenis: Optional[str] = None):
 def detail_publikasi_api(request, slug: str):
     return publikasi_service.get_detail_publik(slug)
 
+
+@router.get("/admin", auth=AuthAdminOnly, response=list[PublikasiDetailOut], url_name="publikasi-admin-list")
+def list_publikasi_admin_api(request):
+    return publikasi_service.list_publikasi_admin(request.user)
+
 @router.post("/admin/buat", auth=AuthAdminOnly, response={201: PublikasiDetailOut}, url_name="publikasi-admin-buat")
 def buat_publikasi_admin_api(request, payload: BuatPublikasiIn):
     publikasi = publikasi_service.buat_publikasi(

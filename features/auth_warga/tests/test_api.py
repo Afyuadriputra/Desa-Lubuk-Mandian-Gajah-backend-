@@ -1,12 +1,24 @@
 import pytest
 import json
+from django.contrib.auth.models import Group, Permission
 from django.contrib.auth import get_user_model
+from django.test import Client, override_settings
 from django.urls import reverse
 
 User = get_user_model()
 
 @pytest.mark.django_db
 class TestAuthAPI:
+    @override_settings(ALLOWED_HOSTS=["testserver", "127.0.0.1", "localhost"])
+    def test_csrf_endpoint_mengembalikan_token_dan_cookie(self):
+        client = Client(enforce_csrf_checks=True)
+
+        response = client.get(reverse("auth-csrf"))
+
+        assert response.status_code == 200
+        assert "csrfToken" in response.json()
+        assert client.cookies.get("csrftoken") is not None
+
     
     def test_login_sukses_mengembalikan_schema_user(self, client):
         # Setup user
@@ -20,6 +32,46 @@ class TestAuthAPI:
         assert "id" in data
         assert data["nama_lengkap"] == "Budi"
         assert "password" not in data # YAGNI & Security: Password tidak boleh bocor
+
+    @override_settings(ALLOWED_HOSTS=["testserver", "127.0.0.1", "localhost"])
+    def test_login_strict_csrf_memblokir_request_tanpa_token(self):
+        User.objects.create_user(
+            nik="1234567812345678",
+            password="password123",
+            nama_lengkap="Budi",
+            role="WARGA",
+        )
+        client = Client(enforce_csrf_checks=True)
+
+        response = client.post(
+            "/api/v1/auth/login",
+            data=json.dumps({"nik": "1234567812345678", "password": "password123"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+
+    @override_settings(ALLOWED_HOSTS=["testserver", "127.0.0.1", "localhost"])
+    def test_login_dengan_csrf_token_berhasil(self):
+        User.objects.create_user(
+            nik="2222333344445555",
+            password="password123",
+            nama_lengkap="Budi CSRF",
+            role="WARGA",
+        )
+        client = Client(enforce_csrf_checks=True)
+        csrf_response = client.get(reverse("auth-csrf"))
+
+        assert csrf_response.status_code == 200
+
+        response = client.post(
+            "/api/v1/auth/login",
+            data=json.dumps({"nik": "2222333344445555", "password": "password123"}),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=client.cookies["csrftoken"].value,
+        )
+
+        assert response.status_code == 200
 
     def test_login_gagal_karena_schema_tidak_valid(self, client):
         # Payload kurang field password (menguji Pydantic Django Ninja)
@@ -97,6 +149,100 @@ class TestAuthAPI:
         assert len(data) >= 1
         assert any(item["nama_lengkap"] == "Warga Cari" for item in data)
         assert all(item["role"] == "WARGA" for item in data)
+
+    def test_superadmin_bisa_lihat_detail_user_dengan_group_dan_permission(self, client, admin_user, warga_user):
+        group = Group.objects.create(name="Operator Desa")
+        permission = Permission.objects.filter(codename="view_group").first()
+        assert permission is not None
+        warga_user.groups.add(group)
+        warga_user.user_permissions.add(permission)
+        client.force_login(admin_user)
+
+        response = client.get(reverse("auth-users-detail", kwargs={"user_id": str(warga_user.id)}))
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(warga_user.id)
+        assert len(data["groups"]) == 1
+        assert len(data["user_permissions"]) >= 1
+
+    def test_superadmin_bisa_update_user_dan_assign_group_permission(self, client, admin_user, warga_user):
+        group = Group.objects.create(name="Editor")
+        permission = Permission.objects.filter(codename="change_group").first()
+        assert permission is not None
+        client.force_login(admin_user)
+
+        response = client.put(
+            reverse("auth-users-update", kwargs={"user_id": str(warga_user.id)}),
+            data=json.dumps(
+                {
+                    "nama_lengkap": "Warga Diubah",
+                    "nomor_hp": "081111111111",
+                    "role": "WARGA",
+                    "is_active": True,
+                    "is_staff": False,
+                    "is_superuser": False,
+                    "groups": [group.id],
+                    "user_permissions": [permission.id],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        warga_user.refresh_from_db()
+        assert warga_user.nama_lengkap == "Warga Diubah"
+        assert warga_user.groups.filter(id=group.id).exists() is True
+        assert warga_user.user_permissions.filter(id=permission.id).exists() is True
+
+    def test_admin_hanya_bisa_edit_warga_tanpa_permission(self, client, warga_user):
+        admin = User.objects.create_user(
+            nik="8888888888888888",
+            password="password123",
+            nama_lengkap="Admin Desa",
+            role="ADMIN",
+            is_staff=True,
+        )
+        client.force_login(admin)
+        group = Group.objects.create(name="Restricted")
+
+        response = client.put(
+            reverse("auth-users-update", kwargs={"user_id": str(warga_user.id)}),
+            data=json.dumps(
+                {
+                    "nama_lengkap": "Warga Admin Edit",
+                    "nomor_hp": "082222222222",
+                    "role": "WARGA",
+                    "is_active": True,
+                    "is_staff": False,
+                    "is_superuser": False,
+                    "groups": [group.id],
+                    "user_permissions": [],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code in [400, 403]
+
+    def test_admin_bisa_lihat_list_group_dan_permission(self, client, warga_user):
+        admin = User.objects.create_user(
+            nik="7777777777777777",
+            password="password123",
+            nama_lengkap="Admin Desa",
+            role="ADMIN",
+            is_staff=True,
+        )
+        Group.objects.create(name="Verifier")
+        client.force_login(admin)
+
+        groups_response = client.get(reverse("auth-groups-list"))
+        permissions_response = client.get(reverse("auth-permissions-list"))
+
+        assert groups_response.status_code == 200
+        assert permissions_response.status_code == 200
+        assert any(item["name"] == "Verifier" for item in groups_response.json())
+        assert len(permissions_response.json()) >= 1
 
     def test_warga_tidak_bisa_list_user_via_api(self, client, warga_user):
         client.force_login(warga_user)

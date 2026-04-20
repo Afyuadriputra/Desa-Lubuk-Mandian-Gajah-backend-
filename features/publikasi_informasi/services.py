@@ -98,6 +98,11 @@ class PublikasiService:
         """Hanya mengembalikan data yang berstatus PUBLISHED."""
         return self.repo.list_published(jenis=jenis)
 
+    def list_publikasi_admin(self, actor):
+        if not can_create_or_edit_publikasi(actor):
+            raise PublikasiAccessError("Anda tidak memiliki izin mengelola publikasi.")
+        return self.repo.list_all_admin()
+
     def get_detail_publik(self, slug: str):
         publikasi = self.repo.get_by_slug(slug)
         if not publikasi or publikasi.status != STATUS_PUBLISHED:

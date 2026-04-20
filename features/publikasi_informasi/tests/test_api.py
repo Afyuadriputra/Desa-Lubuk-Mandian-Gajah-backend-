@@ -78,3 +78,21 @@ class TestPublikasiAPI:
         delete_response = client.delete(reverse("publikasi-admin-delete", kwargs={"slug": publikasi.slug}))
         assert delete_response.status_code == 200
         assert Publikasi.objects.filter(id=publikasi.id).exists() is False
+
+    def test_admin_bisa_list_publikasi_changelist(self, client, admin_user):
+        client.force_login(admin_user)
+        Publikasi.objects.create(
+            judul="Berita Admin",
+            slug="berita-admin",
+            konten_html="<p>Admin</p>",
+            jenis="BERITA",
+            status="DRAFT",
+            penulis=admin_user,
+        )
+
+        response = client.get(reverse("publikasi-admin-list"))
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["judul"] == "Berita Admin"

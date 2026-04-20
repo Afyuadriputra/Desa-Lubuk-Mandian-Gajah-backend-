@@ -48,3 +48,27 @@ def can_create_warga_user(actor) -> bool:
 
 def can_list_users(actor) -> bool:
     return can_manage_warga_accounts(actor)
+
+
+def can_view_user_detail(actor, target_user) -> bool:
+    if can_view_self(actor, target_user):
+        return True
+
+    if target_user.role in ADMIN_SIDE_ROLES:
+        return can_manage_admin_accounts(actor)
+
+    return can_manage_warga_accounts(actor)
+
+
+def can_edit_user(actor, target_user) -> bool:
+    if str(actor.id) == str(target_user.id):
+        return False
+
+    if target_user.role in ADMIN_SIDE_ROLES:
+        return can_manage_admin_accounts(actor)
+
+    return can_manage_warga_accounts(actor)
+
+
+def can_assign_groups_and_permissions(actor) -> bool:
+    return can_manage_admin_accounts(actor)

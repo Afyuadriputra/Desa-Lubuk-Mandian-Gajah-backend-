@@ -1,5 +1,6 @@
 # features/auth_warga/repositories.py
 
+from django.contrib.auth.models import Group, Permission
 from django.db.models import Q, QuerySet
 
 from features.auth_warga.models import CustomUser
@@ -8,6 +9,14 @@ from features.auth_warga.models import CustomUser
 class UserRepository:
     def get_by_id(self, user_id) -> CustomUser | None:
         return CustomUser.objects.filter(id=user_id).first()
+
+    def get_detail_by_id(self, user_id) -> CustomUser | None:
+        return (
+            CustomUser.objects.select_related()
+            .prefetch_related("groups", "user_permissions")
+            .filter(id=user_id)
+            .first()
+        )
 
     def get_by_nik(self, nik: str) -> CustomUser | None:
         return CustomUser.objects.filter(nik=nik).first()
@@ -67,6 +76,24 @@ class UserRepository:
 
     def save(self, user: CustomUser) -> CustomUser:
         user.save()
+        return user
+
+    def list_groups(self) -> QuerySet[Group]:
+        return Group.objects.order_by("name")
+
+    def list_permissions(self) -> QuerySet[Permission]:
+        return Permission.objects.select_related("content_type").order_by(
+            "content_type__app_label",
+            "content_type__model",
+            "codename",
+        )
+
+    def set_groups(self, user: CustomUser, groups: list[Group]) -> CustomUser:
+        user.groups.set(groups)
+        return user
+
+    def set_user_permissions(self, user: CustomUser, permissions: list[Permission]) -> CustomUser:
+        user.user_permissions.set(permissions)
         return user
 
     def activate(self, user: CustomUser) -> CustomUser:

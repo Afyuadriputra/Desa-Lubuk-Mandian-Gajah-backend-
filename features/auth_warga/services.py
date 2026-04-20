@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import cast
 
+from django.contrib.auth.models import Group, Permission
 from django.contrib.auth import authenticate
 from django.http import HttpRequest
 
@@ -24,11 +25,14 @@ from features.auth_warga.domain import (
 )
 from features.auth_warga.models import CustomUser
 from features.auth_warga.permissions import (
+    can_assign_groups_and_permissions,
     can_activate_user,
     can_create_admin_user,
     can_create_warga_user,
     can_deactivate_user,
+    can_edit_user,
     can_list_users,
+    can_view_user_detail,
 )
 from features.auth_warga.repositories import UserRepository
 from toolbox.logging import audit_event, get_logger
@@ -176,6 +180,91 @@ class AuthService:
                 is_active=is_active,
             )
         )
+
+    def get_user_detail(self, actor: CustomUser, target_user_id) -> CustomUser:
+        target_user = self.user_repository.get_detail_by_id(target_user_id)
+        if not target_user:
+            raise UserNotFoundError("User tidak ditemukan.")
+
+        if not can_view_user_detail(actor, target_user):
+            raise PermissionDeniedError("Anda tidak memiliki izin untuk melihat detail akun ini.")
+
+        return target_user
+
+    def list_groups(self, actor: CustomUser) -> list[Group]:
+        if not can_list_users(actor):
+            raise PermissionDeniedError("Anda tidak memiliki izin untuk melihat grup.")
+        return list(self.user_repository.list_groups())
+
+    def list_permissions(self, actor: CustomUser) -> list[Permission]:
+        if not can_list_users(actor):
+            raise PermissionDeniedError("Anda tidak memiliki izin untuk melihat permission.")
+        return list(self.user_repository.list_permissions())
+
+    def update_user(
+        self,
+        actor: CustomUser,
+        target_user_id,
+        *,
+        nama_lengkap: str,
+        nomor_hp: str | None,
+        role: str,
+        is_active: bool,
+        is_staff: bool,
+        is_superuser: bool,
+        groups: list[int],
+        user_permissions: list[int],
+    ) -> CustomUser:
+        target_user = self.user_repository.get_detail_by_id(target_user_id)
+        if not target_user:
+            raise UserNotFoundError("User tidak ditemukan.")
+
+        if not can_edit_user(actor, target_user):
+            raise PermissionDeniedError("Anda tidak memiliki izin untuk mengubah akun ini.")
+
+        can_manage_admin = can_assign_groups_and_permissions(actor)
+
+        if not can_manage_admin:
+            if target_user.role != ROLE_WARGA:
+                raise PermissionDeniedError("Anda tidak memiliki izin untuk mengubah akun admin.")
+            if role != ROLE_WARGA:
+                raise PermissionDeniedError("Anda tidak memiliki izin mengubah role akun warga.")
+            if is_staff or is_superuser or groups or user_permissions:
+                raise PermissionDeniedError("Anda tidak memiliki izin mengubah permission akun.")
+
+        validate_role(role)
+
+        target_user.nama_lengkap = nama_lengkap
+        target_user.nomor_hp = nomor_hp
+        target_user.role = role
+        target_user.is_active = is_active
+
+        if can_manage_admin:
+            target_user.is_staff = is_staff
+            target_user.is_superuser = is_superuser
+
+        updated_user = self.user_repository.save(target_user)
+
+        if can_manage_admin:
+            selected_groups = list(self.user_repository.list_groups().filter(id__in=groups))
+            selected_permissions = list(self.user_repository.list_permissions().filter(id__in=user_permissions))
+            self.user_repository.set_groups(updated_user, selected_groups)
+            self.user_repository.set_user_permissions(updated_user, selected_permissions)
+
+        audit_event(
+            action="AUTH_ACCOUNT_UPDATED",
+            actor_id=actor.id,
+            actor_role=actor.role,
+            target="users_customuser",
+            target_id=updated_user.id,
+            metadata={
+                "target_role": updated_user.role,
+                "groups_count": len(groups) if can_manage_admin else updated_user.groups.count(),
+                "permissions_count": len(user_permissions) if can_manage_admin else updated_user.user_permissions.count(),
+            },
+        )
+
+        return self.user_repository.get_detail_by_id(updated_user.id) or updated_user
 
     def create_admin_account(
         self,
