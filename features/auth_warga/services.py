@@ -21,6 +21,7 @@ from features.auth_warga.domain import (
     normalize_nik,
     validate_nik,
     validate_password_change,
+    validate_password_reset,
     validate_role,
 )
 from features.auth_warga.models import CustomUser
@@ -392,4 +393,39 @@ class AuthService:
         )
 
         self.logger.info("Password diubah untuk user_id={user_id}", user_id=updated_user.id)
+        return updated_user
+
+    def reset_user_password(
+        self,
+        actor: CustomUser,
+        target_user_id,
+        *,
+        new_password: str,
+        confirm_password: str,
+    ) -> CustomUser:
+        target_user = self.user_repository.get_by_id(target_user_id)
+        if not target_user:
+            raise UserNotFoundError("User tidak ditemukan.")
+
+        if not can_edit_user(actor, target_user):
+            raise PermissionDeniedError("Anda tidak memiliki izin untuk mereset password akun ini.")
+
+        validate_password_reset(new_password, confirm_password)
+
+        updated_user = self.user_repository.update_password(target_user, new_password)
+
+        audit_event(
+            action="AUTH_PASSWORD_RESET",
+            actor_id=actor.id,
+            actor_role=actor.role,
+            target="users_customuser",
+            target_id=updated_user.id,
+            metadata={"target_role": updated_user.role},
+        )
+
+        self.logger.info(
+            "Password direset actor_id={actor_id} target_user_id={target_user_id}",
+            actor_id=actor.id,
+            target_user_id=updated_user.id,
+        )
         return updated_user

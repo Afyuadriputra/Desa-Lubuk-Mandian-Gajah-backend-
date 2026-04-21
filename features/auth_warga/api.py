@@ -15,6 +15,7 @@ from .schemas import (
     PermissionFlatOut,
     PermissionGroupOut,
     PermissionOut,
+    ResetUserPasswordIn,
     UpdateUserIn,
     UserDetailOut,
     UserListQueryIn,
@@ -184,6 +185,21 @@ def activate_user_api(request, user_id: str):
 )
 def deactivate_user_api(request, user_id: str):
     return auth_service.deactivate_account(request.user, user_id)
+
+
+@router.post(
+    "/users/{user_id}/reset-password",
+    auth=AuthActiveUser,
+    response=UserOut,
+    url_name="auth-users-reset-password",
+)
+def reset_user_password_api(request, user_id: str, payload: ResetUserPasswordIn):
+    return auth_service.reset_user_password(
+        actor=request.user,
+        target_user_id=user_id,
+        new_password=payload.new_password,
+        confirm_password=payload.confirm_password,
+    )
 
 
 @router.post(

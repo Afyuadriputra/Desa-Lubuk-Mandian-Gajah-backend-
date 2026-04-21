@@ -9,6 +9,7 @@ from features.auth_warga.domain import (
     DuplicateNIKError,
     InactiveAccountError,
     InvalidNIKError,
+    InvalidPasswordChangeError,
     InvalidRoleError,
     ROLE_ADMIN,
     ROLE_BUMDES,
@@ -381,4 +382,86 @@ class TestAdminAccountCreationService:
                 password="password123",
                 nama_lengkap="Bukan Admin",
                 role=ROLE_WARGA,
+            )
+
+
+@pytest.mark.django_db
+class TestPasswordResetService:
+
+    def test_should_allow_admin_to_reset_warga_password(self):
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role=ROLE_ADMIN,
+            is_staff=True,
+        )
+        target = User.objects.create_user(
+            nik="2222222222222222",
+            password="password123",
+            nama_lengkap="Warga",
+            role=ROLE_WARGA,
+        )
+
+        service = AuthService()
+        service.reset_user_password(
+            actor=actor,
+            target_user_id=target.id,
+            new_password="password456",
+            confirm_password="password456",
+        )
+
+        target.refresh_from_db()
+        assert target.check_password("password456") is True
+
+    def test_should_prevent_admin_from_resetting_other_admin_password(self):
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Admin",
+            role=ROLE_ADMIN,
+            is_staff=True,
+        )
+        target = User.objects.create_user(
+            nik="2222222222222222",
+            password="password123",
+            nama_lengkap="Admin Lain",
+            role=ROLE_ADMIN,
+            is_staff=True,
+        )
+
+        service = AuthService()
+
+        with pytest.raises(PermissionDeniedError):
+            service.reset_user_password(
+                actor=actor,
+                target_user_id=target.id,
+                new_password="password456",
+                confirm_password="password456",
+            )
+
+    def test_should_reject_invalid_reset_password_payload(self):
+        actor = User.objects.create_user(
+            nik="1111111111111111",
+            password="password123",
+            nama_lengkap="Super Admin",
+            role=ROLE_SUPERADMIN,
+            is_staff=True,
+            is_superuser=True,
+        )
+        target = User.objects.create_user(
+            nik="2222222222222222",
+            password="password123",
+            nama_lengkap="Warga",
+            role=ROLE_WARGA,
+        )
+
+        service = AuthService()
+
+        with pytest.raises(InvalidPasswordChangeError):
+            service.reset_user_password(
+                actor=actor,
+                target_user_id=target.id,
+                new_password="short",
+                confirm_password="short",
             )

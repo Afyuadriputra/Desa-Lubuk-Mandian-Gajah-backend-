@@ -106,3 +106,8 @@ class ChangePasswordIn(Schema):
     current_password: str
     new_password: str
     confirm_password: str
+
+
+class ResetUserPasswordIn(Schema):
+    new_password: str
+    confirm_password: str

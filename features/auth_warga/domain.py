@@ -93,3 +93,15 @@ def validate_password_change(
         raise InvalidPasswordChangeError("Password baru harus berbeda dari password lama.")
     if new_password != confirm_password:
         raise InvalidPasswordChangeError("Konfirmasi password baru tidak cocok.")
+
+
+def validate_password_reset(
+    new_password: str | None,
+    confirm_password: str | None,
+) -> None:
+    if not new_password:
+        raise InvalidPasswordChangeError("Password baru wajib diisi.")
+    if len(new_password) < 8:
+        raise InvalidPasswordChangeError("Password baru minimal 8 karakter.")
+    if new_password != confirm_password:
+        raise InvalidPasswordChangeError("Konfirmasi password baru tidak cocok.")

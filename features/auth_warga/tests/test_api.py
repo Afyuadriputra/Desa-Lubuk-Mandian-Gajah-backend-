@@ -280,3 +280,51 @@ class TestAuthAPI:
         assert response.status_code == 200
         warga_user.refresh_from_db()
         assert warga_user.check_password("password456") is True
+
+    def test_admin_bisa_reset_password_warga_via_api(self, client, admin_user, warga_user):
+        client.force_login(admin_user)
+
+        response = client.post(
+            reverse("auth-users-reset-password", kwargs={"user_id": str(warga_user.id)}),
+            data=json.dumps(
+                {
+                    "new_password": "password789",
+                    "confirm_password": "password789",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        warga_user.refresh_from_db()
+        assert warga_user.check_password("password789") is True
+
+    def test_admin_tidak_bisa_reset_password_admin_lain_via_api(self, client, warga_user):
+        admin = User.objects.create_user(
+            nik="6666666666666666",
+            password="password123",
+            nama_lengkap="Admin Desa",
+            role="ADMIN",
+            is_staff=True,
+        )
+        admin_lain = User.objects.create_user(
+            nik="5555555555555555",
+            password="password123",
+            nama_lengkap="Admin Lain",
+            role="ADMIN",
+            is_staff=True,
+        )
+        client.force_login(admin)
+
+        response = client.post(
+            reverse("auth-users-reset-password", kwargs={"user_id": str(admin_lain.id)}),
+            data=json.dumps(
+                {
+                    "new_password": "password789",
+                    "confirm_password": "password789",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code in [400, 403]
