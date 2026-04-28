@@ -1,0 +1,62 @@
+@startuml Layanan_Administrasi_Component
+title C4 Component Diagram - Layanan Administrasi
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_TOP_DOWN()
+
+Person(warga, "Warga", "Mengajukan dan melihat surat")
+Person(admin, "Admin", "Mengelola template dan memproses surat")
+
+System_Boundary(sa, "Fitur Layanan Administrasi") {
+    Component(api, "api.py", "Django Ninja Router", "HTTP endpoint dan mapping request/response")
+    Component(schemas, "schemas.py", "Ninja Schema", "Kontrak input/output API")
+    Component(service_surat, "SuratService", "Service", "Use case pengajuan, proses, detail, dan download surat")
+    Component(service_template, "TemplateSuratService", "Service", "Use case kelola template surat")
+    Component(domain, "domain.py", "Domain Rules", "Validasi status, keperluan, template, dan rejection")
+    Component(perm, "permissions.py", "Permission Rules", "Aturan akses actor")
+    Component(repo_surat, "SuratRepository", "Repository", "Akses data LayananSurat dan histori status")
+    Component(repo_template, "TemplateSuratRepository", "Repository", "Akses data TemplateSurat")
+    Component(models, "models.py", "Django Models", "TemplateSurat, LayananSurat, LayananSuratStatusHistory")
+    Component(adminui, "admin.py", "Django Admin", "Konfigurasi admin interface")
+    Component(renderer, "SuratDocumentRenderer", "DOCX Renderer", "Render template .docx menggunakan docxtpl")
+}
+
+System_Ext(django_ninja, "Django Ninja", "Routing HTTP dan serialisasi")
+System_Ext(django_orm, "Django ORM / Database", "Persistensi data")
+System_Ext(storage, "File Storage", "Penyimpanan file DOCX/PDF")
+System_Ext(docxtpl, "docxtpl", "Render template DOCX")
+System_Ext(audit, "Audit Logger", "audit_event dan logging")
+
+Rel(warga, api, "Mengajukan / melihat surat", "HTTP")
+Rel(admin, api, "Upload template dan proses surat", "HTTP")
+Rel(admin, adminui, "Kelola data", "Django Admin")
+
+Rel(api, django_ninja, "Dijalankan oleh")
+Rel(api, schemas, "Validasi dan serialisasi")
+Rel(api, service_surat, "Memanggil")
+Rel(api, service_template, "Memanggil")
+
+Rel(service_surat, perm, "Cek izin")
+Rel(service_template, perm, "Cek izin")
+Rel(service_surat, domain, "Validasi bisnis")
+Rel(service_template, domain, "Validasi bisnis")
+
+Rel(service_surat, repo_surat, "Baca / tulis")
+Rel(service_surat, repo_template, "Cari template aktif")
+Rel(service_template, repo_template, "Baca / tulis")
+
+Rel(repo_surat, models, "Gunakan model")
+Rel(repo_template, models, "Gunakan model")
+Rel(adminui, models, "Kelola model")
+
+Rel(service_surat, renderer, "Generate DOCX saat DONE")
+Rel(renderer, docxtpl, "Render template")
+Rel(repo_surat, django_orm, "Persist data")
+Rel(repo_template, django_orm, "Persist data")
+Rel(repo_surat, storage, "Simpan file hasil")
+Rel(repo_template, storage, "Simpan template")
+
+Rel(service_surat, audit, "Catat event")
+Rel(service_template, audit, "Catat event")
+
+@enduml

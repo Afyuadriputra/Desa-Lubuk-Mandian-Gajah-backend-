@@ -1,0 +1,34 @@
+@startuml Upload_Template_Surat
+title Sequence Diagram - Upload Template Surat
+
+actor Admin
+participant "API Router\n(api.py)" as API
+participant "TemplateSuratService" as Service
+participant "permissions.py" as Perm
+participant "domain.py" as Domain
+participant "TemplateSuratRepository" as Repo
+database "Django ORM / DB" as DB
+participant "File Storage" as Storage
+participant "audit_event" as Audit
+
+Admin -> API : POST /template-surat\nForm + file .docx
+API -> Service : create_template(actor, kode, nama, deskripsi, file_template, is_active)
+
+Service -> Perm : can_manage_template_surat(actor)
+Perm --> Service : true
+
+Service -> Domain : validate_template_code(kode)
+Service -> Domain : validate_template_name(nama)
+Service -> Domain : validate_template_file(file_template.name)
+
+Service -> Repo : create_template(...)
+Repo -> DB : INSERT TemplateSurat
+Repo -> Storage : save uploaded .docx
+DB --> Repo : template
+Repo --> Service : template
+
+Service -> Audit : TEMPLATE_SURAT_CREATED
+Service --> API : template
+API --> Admin : 201 Created
+
+@enduml

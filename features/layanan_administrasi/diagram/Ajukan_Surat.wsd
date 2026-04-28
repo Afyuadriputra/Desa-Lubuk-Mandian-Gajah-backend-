@@ -1,0 +1,42 @@
+@startuml Ajukan_Surat
+title Sequence Diagram - Ajukan Surat
+
+actor Warga
+participant "API Router\n(api.py)" as API
+participant "SuratService" as Service
+participant "permissions.py" as Perm
+participant "domain.py" as Domain
+participant "TemplateSuratRepository" as RepoT
+participant "SuratRepository" as RepoS
+database "Django ORM / DB" as DB
+participant "audit_event" as Audit
+
+Warga -> API : POST /mvp/surat/ajukan\n{template_id, jenis_surat, keperluan}
+API -> Service : ajukan_surat(actor, template_id, jenis_surat, keperluan)
+
+Service -> Perm : can_submit_surat(actor)
+Perm --> Service : true
+
+Service -> Domain : validate_keperluan(keperluan)
+
+alt template_id ada
+    Service -> RepoT : get_active_by_id(template_id)
+    RepoT -> DB : SELECT TemplateSurat WHERE id AND is_active=true
+    DB --> RepoT : template / null
+    RepoT --> Service : template
+    Service -> Domain : validate_template_is_active(template)
+else template_id tidak ada
+    Service -> Domain : validate_jenis_surat(jenis_surat)
+end
+
+Service -> RepoS : create_surat(pemohon_id, keperluan, jenis_surat, template)
+RepoS -> DB : INSERT LayananSurat
+RepoS -> DB : INSERT LayananSuratStatusHistory(PENDING)
+DB --> RepoS : surat
+RepoS --> Service : surat
+
+Service -> Audit : SURAT_SUBMITTED
+Service --> API : surat
+API --> Warga : 201 Created
+
+@enduml

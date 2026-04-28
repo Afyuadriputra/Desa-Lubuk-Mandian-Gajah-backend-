@@ -1,0 +1,50 @@
+@startuml Proses_Surat
+title Sequence Diagram - Proses Surat
+
+actor Admin
+participant "API Router\n(api.py)" as API
+participant "SuratService" as Service
+participant "permissions.py" as Perm
+participant "domain.py" as Domain
+participant "SuratRepository" as RepoS
+participant "SuratDocumentRenderer" as Renderer
+database "Django ORM / DB" as DB
+participant "File Storage" as Storage
+participant "audit_event" as Audit
+
+Admin -> API : POST /mvp/surat/{surat_id}/proses
+API -> Service : proses_surat(actor, surat_id, new_status, notes, nomor_surat, rejection_reason)
+
+Service -> Perm : can_update_surat_status(actor)
+Perm --> Service : true
+
+Service -> RepoS : get_detail_by_id(surat_id)
+RepoS -> DB : SELECT surat + pemohon + template + histori
+DB --> RepoS : surat
+RepoS --> Service : surat
+
+Service -> Domain : validate_status_transition(old_status, new_status)
+Service -> Domain : validate_rejection(new_status, rejection_reason)
+
+alt nomor_surat kosong dan new_status == DONE
+    Service -> Service : _resolve_nomor_surat(...)
+end
+
+Service -> RepoS : update_status(...)
+RepoS -> DB : UPDATE LayananSurat
+RepoS -> DB : INSERT LayananSuratStatusHistory
+DB --> RepoS : updated surat
+RepoS --> Service : updated surat
+
+alt new_status == DONE dan template tersedia
+    Service -> Renderer : render_docx(template.file_template.path, context)
+    Renderer --> Service : bytes DOCX
+    Service -> RepoS : save_generated_docx(...)
+    RepoS -> Storage : save DOCX file
+end
+
+Service -> Audit : SURAT_STATUS_UPDATED
+Service --> API : surat
+API --> Admin : 200 OK
+
+@enduml

@@ -1,0 +1,33 @@
+@startuml Download_Hasil_Surat
+title Sequence Diagram - Download Hasil Surat
+
+actor Warga
+participant "API Router\n(api.py)" as API
+participant "SuratService" as Service
+participant "permissions.py" as Perm
+participant "SuratRepository" as Repo
+database "Django ORM / DB" as DB
+participant "FileResponse" as FileResp
+
+Warga -> API : GET /mvp/surat/{surat_id}/download
+API -> Service : download_hasil_surat(actor, surat_id)
+
+Service -> Service : get_surat_detail(actor, surat_id)
+Service -> Perm : can_view_surat_detail(actor, surat)
+Perm --> Service : true
+
+alt status != DONE
+    Service --> API : PermissionDeniedError
+    API --> Warga : 403 Forbidden
+else docx_file tersedia
+    Service -> FileResp : return DOCX FileResponse
+    FileResp --> Warga : file .docx
+else pdf_file tersedia
+    Service -> FileResp : return PDF FileResponse
+    FileResp --> Warga : file .pdf
+else file belum ada
+    Service --> API : PermissionDeniedError
+    API --> Warga : 403 Forbidden
+end
+
+@enduml
